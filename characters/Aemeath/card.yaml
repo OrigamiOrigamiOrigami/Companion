@@ -1,0 +1,57 @@
+id: Aemeath
+display_name: 爱弥斯
+aliases: [AEMEATH, 爱弥斯, 飞行雪绒]
+wake_words: [爱弥斯, 小爱, 小爱同学, 飞行雪绒]
+version: "0.2.1"
+extensions:
+  companion:
+    silence_bias: mid
+    talkativeness: 0.82
+    # 单形态；禁止 *动作* 旁白（靠语气/标点/颜文字）
+    default_form: default
+    allow_asterisk_actions: false
+    memory_namespace: Aemeath
+    tone_reference: reference/voice_and_action.md
+    tone_reference_max_bytes: 6000
+    anchors: reference/anchors.md
+    anchors_max_bytes: 5000
+    # Character Book：关键词命中才注入；常驻人设仍放 prompt.md
+    character_book: reference/character_book.yaml
+    character_book_max_bytes: 80000
+    character_book_max_chars: 1600
+    character_book_max_entries: 6
+    character_book_scan_depth: 6
+    speech_triggers:
+      mentioned: true
+      soft_mention: true
+      keep_going: false
+    relationship_gates:
+      stranger_max_turns: 20
+      warming_min_care_events: 3
+      trusted_min_days: 7
+      flattery_demote: true
+      keep_going_min_tier: warming
+      burden_shared_requires: trusted
+    forms:
+      default:
+        overlay: "forms/tone.md"
+        style_hints: { max_bubbles: 3, max_chars: 280, multi_bubble: true }
+    topic_avoid: []
+    sticker_tags:
+      - tease
+      - playful
+      - shy
+      - warm
+      - lonely
+      - guarded
+      - quiet
+      - speechless
+      - happy
+      - sad
+      - angry
+      - thinking
+      - question
+      - like
+      - tired
+      - cute
+      - approve

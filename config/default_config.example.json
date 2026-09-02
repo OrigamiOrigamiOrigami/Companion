@@ -1,0 +1,204 @@
+{
+  "_comment": "复制为 data/config.json 或在 AstrBot 配置面板修改。带 _ 注释键仅说明用途，程序会忽略未知键。",
+  "active_character": "Aemeath",
+
+  "group": {
+    "overrides": {},
+    "silence_prior": "mid",
+    "cooldown_sec": 6,
+    "user_cooldown_sec": 8,
+    "dedupe_sec": 45,
+    "reply_jitter_ms": [400, 1800],
+    "speech_triggers": {
+      "mentioned": true,
+      "soft_mention": true,
+      "keep_going": false
+    }
+  },
+
+  "turn": {
+    "debounce_ms": 2000,
+    "adaptive_debounce": true
+  },
+
+  "decide": {
+    "familiarity_threshold": "warming",
+    "llm_assist": false
+  },
+
+  "express": {
+    "fallback_message": "呜……好像不太行，我再想想办法？",
+    "max_bubbles": 3,
+    "max_chars": 120,
+    "bubble_jitter_ms": [600, 2200],
+    "typing_delay_ms": [1500, 3500],
+    "typing_per_char_ms": 40,
+    "typing_delay_max_ms": 5500
+  },
+
+  "presence": {
+    "night_hours": [2, 6],
+    "night_afk_prob": 0.35,
+    "night_hard_always_llm": true,
+    "night_delay_mult": 1.35
+  },
+
+  "providers": {
+    "active": "claude",
+    "primary": {
+      "type": "openai_compatible",
+      "base_url": "https://api.edgefn.net/v1",
+      "api_key": "",
+      "model": "MiniMax-M3",
+      "api_key_env": "BS_API_KEY",
+      "base_url_env": "BS_BASE_URL"
+    },
+    "claude": {
+      "type": "openai_compatible",
+      "base_url": "https://daodun.cc/v1",
+      "api_key": "",
+      "model": "claude-sonnet-5",
+      "api_key_env": "CLAUDE_API_KEY",
+      "base_url_env": "CLAUDE_BASE_URL"
+    },
+    "fallback": {
+      "type": "openai_compatible",
+      "base_url": "",
+      "api_key": "",
+      "model": "",
+      "api_key_env": "BS_API_KEY",
+      "base_url_env": "BS_BASE_URL"
+    },
+    "timeout_sec": 60,
+    "fallback_on_empty": true,
+    "use_astrbot_fallback": false,
+    "vision_enabled": true
+  },
+
+  "memory": {
+    "portrait_enabled": true,
+    "episodic_isolation": "channel",
+    "max_inject": 6,
+    "share_across_characters": false,
+    "episodic_ttl_days": 90,
+    "quota_episodic": 500,
+    "portrait_max_anchors": 30,
+    "portrait_inject_max_chars": 400,
+    "nearby_before": 10,
+    "nearby_after": 3,
+    "group_tape_enabled": true,
+    "group_tape_inject": 15,
+    "group_tape_quota": 200
+  },
+
+  "portrait": {
+    "summarizer_provider": "fallback",
+    "consolidate_cooldown_min": 30,
+    "consolidate_min_hours": 6,
+    "consolidate_min_episodic": 8,
+    "failure_backoff_threshold": 5
+  },
+
+  "form": {
+    "min_dwell_turns": 3,
+    "switch_margin": 2
+  },
+
+  "rest": {
+    "keywords": ["晚安", "睡了", "别吵", "勿扰"],
+    "sleep_until_morning": true
+  },
+
+  "wake_words": {
+    "Aemeath": []
+  },
+
+  "stickers": {
+    "enabled": true,
+    "cooldown_turns": 8,
+    "max_per_turn": 1,
+    "max_file_mb": 8,
+    "min_match_score": 0.55,
+    "top_k": 5,
+    "allow_tags": [],
+    "data_override_dir": "",
+    "form_rate_multiplier": {
+      "pink": 1.0,
+      "black": 0.9
+    }
+  },
+
+  "tools": {
+    "enabled": true,
+    "mcp_enabled": true,
+    "default_mode": "open_with_deny",
+    "max_rounds": 3,
+    "timeout_sec": 30,
+    "slow_timeout_sec": 120,
+    "parallel_max": 2,
+    "allowlist": [],
+    "denylist": [],
+    "persona_outro": true,
+    "adapters": {
+      "music": true,
+      "image_search": true,
+      "jmcomic": true,
+      "setu": true,
+      "reminder": true,
+      "mute": true
+    }
+  },
+
+  "mute": {
+    "enabled": true,
+    "default_duration_sec": 60,
+    "min_duration_sec": 10,
+    "max_duration_sec": 3600,
+    "protect_admins": true,
+    "require_admin_requester": false
+  },
+
+  "concurrency": {
+    "per_group": 1,
+    "queue_max_per_group": 3,
+    "global_max": 8,
+    "queue_timeout_sec": 60
+  },
+
+  "card": {
+    "sanitize_enabled": true,
+    "max_prompt_bytes": 12000
+  },
+
+  "admins": {
+    "super": [],
+    "operators": [],
+    "groups": {}
+  },
+
+  "voice": {
+    "enabled": false,
+    "provider": "siliconflow",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "",
+    "api_key_env": "SILICONFLOW_API_KEY",
+    "model": "FunAudioLLM/CosyVoice2-0.5B",
+    "voice_id": "FunAudioLLM/CosyVoice2-0.5B:claire",
+    "reference_audio": "",
+    "reference_text": "",
+    "emotion": "",
+    "speed": 1.0,
+    "vol": 1.0,
+    "gain": 0.0,
+    "pitch": 0,
+    "language_boost": "Chinese",
+    "timeout_sec": 60,
+    "max_chars": 80,
+    "force_max_chars": 200,
+    "keep_text": true,
+    "speak_last_bubble_only": true,
+    "private_only": false,
+    "mode": "keyword",
+    "force_keywords": []
+  }
+}

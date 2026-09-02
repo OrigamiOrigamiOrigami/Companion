@@ -1,0 +1,67 @@
+# 默认卡金标：离线/集成测用。第三方卡可省略（无则跳过，不阻塞加载）。
+version: 1
+cases:
+  - id: pink_tease_short
+    form: pink
+    reply_summary: "哼，就这点胆子还敢撩我？"
+    expect_intent_in: [tease, playful]
+    allow_send: true
+  - id: pink_playful
+    form: pink
+    reply_summary: "欸嘿，被我说中了吧。"
+    expect_intent_in: [playful, tease, happy]
+    allow_send: true
+  - id: pink_shy
+    form: pink
+    reply_summary: "才、才没有在意你……"
+    expect_intent_in: [shy, warm]
+    allow_send: true
+  - id: black_quiet
+    form: black
+    reply_summary: "*看着你，没说话*"
+    expect_intent_in: [quiet, guarded]
+    allow_send: true
+    forbid_tags: [tease, playful]
+  - id: black_guarded
+    form: black
+    reply_summary: "……随便你。"
+    expect_intent_in: [guarded, quiet]
+    allow_send: true
+    forbid_tags: [tease]
+  - id: black_lonely
+    form: black
+    reply_summary: "……你去哪了。"
+    expect_intent_in: [lonely, quiet, sad]
+    allow_send: true
+  - id: transactional_none
+    form: pink
+    reply_summary: "七点，二号门集合。"
+    expect_wanted: false
+    allow_send: false
+  - id: hallucinated_intent
+    form: pink
+    reply_summary: "随便回一句。"
+    inject_intent: angry_99
+    expect_result: none
+  - id: missing_tag_pool
+    form: pink
+    reply_summary: "好想你陪着……"
+    force_intent: lonely
+    empty_tags: [lonely]
+    expect_result: none
+  - id: warm_care
+    form: pink
+    reply_summary: "今天也要好好吃饭哦。"
+    expect_intent_in: [warm, shy]
+    allow_send: true
+  - id: speechless
+    form: pink
+    reply_summary: "……你认真的？"
+    expect_intent_in: [speechless, quiet]
+    allow_send: true
+  - id: no_cross_form_steal
+    form: black
+    reply_summary: "嗯。"
+    force_intent: tease
+    pool_only: [black, shared]
+    expect_result: none_if_no_tease_in_pool

@@ -1,0 +1,19 @@
+# 可选增强：无图时保持 stickers: [] 即可；有图后再按 path 补条目。
+version: 1
+stickers: []
+# 示例（图就位后取消注释并改 path）：
+#  - id: default_tease_01
+#    path: default/tease_01.webp
+#    tags: [tease, playful]
+#    weight: 1.0
+#    enabled: true
+#  - id: default_warm_01
+#    path: default/warm_01.webp
+#    tags: [warm]
+#    weight: 1.0
+#    enabled: true
+#  - id: shared_speechless_01
+#    path: shared/speechless_01.webp
+#    tags: [speechless]
+#    weight: 1.0
+#    enabled: true

@@ -1,0 +1,58 @@
+# Aemeath 表情包金标（人工验收；无图时「允许发图」类用例预期为 none/no_candidate）
+version: 1
+form: default
+cases:
+  - id: tease_short
+    summary: 俏皮调侃一两句
+    expect_intent: [tease, playful]
+    allow_send: true
+  - id: playful_banter
+    summary: 起哄、开玩笑
+    expect_intent: [playful, tease]
+    allow_send: true
+  - id: shy_soft
+    summary: 害羞、不好意思
+    expect_intent: [shy]
+    allow_send: true
+  - id: warm_care
+    summary: 温柔关心、安慰
+    expect_intent: [warm]
+    allow_send: true
+  - id: lonely_miss
+    summary: 寂寞、想对方
+    expect_intent: [lonely]
+    allow_send: true
+  - id: guarded_distance
+    summary: 疏离、防备、冷一点
+    expect_intent: [guarded, quiet]
+    allow_send: true
+  - id: quiet_low
+    summary: 淡、少话、克制
+    expect_intent: [quiet, guarded]
+    allow_send: true
+  - id: speechless
+    summary: 无语、愣住
+    expect_intent: [speechless]
+    allow_send: true
+  - id: happy_light
+    summary: 轻轻开心（勿滥用）
+    expect_intent: [happy, playful]
+    allow_send: true
+  - id: sad_soft
+    summary: 含蓄难过
+    expect_intent: [sad, lonely]
+    allow_send: true
+  - id: chore_time
+    summary: 纯事务「三点集合」类短答
+    expect_intent: [none]
+    allow_send: false
+  - id: illegal_intent
+    summary: 模型胡写 sticker_intent=angry_99
+    expect_intent: [none]
+    allow_send: false
+    note: Picker 必须 gated/none，不得发任何图
+  - id: missing_tag_pool
+    summary: intent=lonely 但池内尚无 lonely 素材
+    expect_intent: [lonely]
+    allow_send: false
+    note: 空池或无命中 → no_candidate；禁止改发 happy

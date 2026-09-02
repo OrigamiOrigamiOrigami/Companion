@@ -1,0 +1,598 @@
+{
+    "模型接口地址": {
+        "type": "string",
+        "description": "主供应商 API 地址（OpenAI 兼容）",
+        "hint": "默认 EdgeFN / MiniMax；可用「当前供应商」切到 claude",
+        "default": "https://api.edgefn.net/v1"
+    },
+    "模型名称": {
+        "type": "string",
+        "description": "主供应商（minimax）模型 ID",
+        "hint": "例如 MiniMax-M3",
+        "default": "MiniMax-M3"
+    },
+    "API密钥": {
+        "type": "string",
+        "description": "主供应商 API Key",
+        "hint": "留空则从环境变量「密钥环境变量名」读取（默认 BS_API_KEY）",
+        "default": ""
+    },
+    "密钥环境变量名": {
+        "type": "string",
+        "description": "主供应商 API Key 环境变量名",
+        "hint": "当上方 API 密钥留空时使用",
+        "default": "BS_API_KEY"
+    },
+    "接口地址环境变量名": {
+        "type": "string",
+        "description": "主供应商 Base URL 环境变量名",
+        "hint": "当模型接口地址留空时使用",
+        "default": "BS_BASE_URL"
+    },
+    "当前供应商": {
+        "type": "string",
+        "description": "当前优先使用的供应商 ID",
+        "hint": "claude 或 primary/minimax；命令：/伴侣 供应商 claude",
+        "default": "claude"
+    },
+    "Claude接口地址": {
+        "type": "string",
+        "description": "Claude 供应商 OpenAI 兼容地址",
+        "hint": "https://daodun.cc/v1",
+        "default": "https://daodun.cc/v1"
+    },
+    "Claude模型名称": {
+        "type": "string",
+        "description": "Claude 模型 ID",
+        "hint": "例如 claude-sonnet-5",
+        "default": "claude-sonnet-5"
+    },
+    "ClaudeAPI密钥": {
+        "type": "string",
+        "description": "Claude API Key（Bearer Token）",
+        "hint": "留空则读环境变量 CLAUDE_API_KEY",
+        "default": ""
+    },
+    "Claude密钥环境变量名": {
+        "type": "string",
+        "description": "Claude API Key 环境变量名",
+        "default": "CLAUDE_API_KEY"
+    },
+    "备用模型接口地址": {
+        "type": "string",
+        "description": "额外备用供应商 API 地址",
+        "hint": "当前供应商失败时尝试；留空则跳过",
+        "default": ""
+    },
+    "备用模型名称": {
+        "type": "string",
+        "description": "额外备用模型 ID",
+        "default": ""
+    },
+    "LLM请求超时秒": {
+        "type": "int",
+        "description": "调用大模型最长等待时间（秒）",
+        "default": 60
+    },
+    "空回复切换备用模型": {
+        "type": "bool",
+        "description": "主模型返回空内容时是否改走备用",
+        "default": true
+    },
+    "失败回退AstrBot全局模型": {
+        "type": "bool",
+        "description": "主备均失败时是否尝试 AstrBot 全局 Provider",
+        "hint": "一般保持关闭，使用上方独立接口即可",
+        "default": false
+    },
+    "启用多模态视觉": {
+        "type": "bool",
+        "description": "把用户发的图片传给模型（MiniMax-M3 等多模态）",
+        "hint": "关闭则只告诉模型「有图」但不传像素",
+        "default": true
+    },
+
+    "默认角色卡": {
+        "type": "string",
+        "description": "默认使用的角色卡",
+        "hint": "对应插件目录 characters/<角色名>/",
+        "default": "Aemeath"
+    },
+    "群聊沉默倾向": {
+        "type": "string",
+        "description": "群里不说话的概率倾向",
+        "hint": "high=多数不回；mid=偶尔插话；low=更活跃",
+        "default": "mid"
+    },
+    "群聊回复冷却秒": {
+        "type": "int",
+        "description": "同一群里两次回复的最短间隔（秒）",
+        "default": 6
+    },
+    "回复抖动下限毫秒": {
+        "type": "int",
+        "description": "发消息前随机等待的下限（毫秒）",
+        "hint": "硬 @ 或群回复生效，模拟真人打字",
+        "default": 400
+    },
+    "回复抖动上限毫秒": {
+        "type": "int",
+        "description": "发消息前随机等待的上限（毫秒）",
+        "default": 1800
+    },
+    "硬艾特触发": {
+        "type": "bool",
+        "description": "被 @ 时是否回复",
+        "default": true
+    },
+    "软唤醒触发": {
+        "type": "bool",
+        "description": "消息含唤醒词/别名时是否可能回复",
+        "hint": "仍可能因决策层选择沉默",
+        "default": true
+    },
+    "续聊触发": {
+        "type": "bool",
+        "description": "私聊续聊触发（预留）",
+        "hint": "V1 默认关闭",
+        "default": false
+    },
+    "私聊合并窗口毫秒": {
+        "type": "int",
+        "description": "私聊连发消息合并为一轮的时间（毫秒）",
+        "default": 2000
+    },
+    "自适应合并窗口": {
+        "type": "bool",
+        "description": "根据连发速度自动调整合并窗口",
+        "default": true
+    },
+    "主动插话熟悉度门槛": {
+        "type": "string",
+        "description": "主动插话需要的熟悉度",
+        "hint": "可选 stranger / warming / trusted / burden_shared",
+        "default": "warming"
+    },
+    "决策层LLM辅助": {
+        "type": "bool",
+        "description": "是否用大模型辅助「回不回」决策",
+        "hint": "V1 建议关闭，以规则为主",
+        "default": false
+    },
+    "模型全失败兜底句": {
+        "type": "string",
+        "description": "所有模型都不可用时的短回复",
+        "default": "呜……好像不太行，我再想想办法？"
+    },
+    "每回合最多气泡数": {
+        "type": "int",
+        "description": "一条用户消息最多拆成几条回复",
+        "hint": "可被角色卡形态样式覆盖",
+        "default": 3
+    },
+    "单气泡最大字数": {
+        "type": "int",
+        "description": "每条回复的字数上限",
+        "hint": "群聊建议 200–300；过短容易把话截成半截",
+        "default": 280
+    },
+    "气泡间隔抖动下限毫秒": {
+        "type": "int",
+        "description": "多条回复之间随机等待的下限（毫秒）",
+        "hint": "仅第 2 条及之后的气泡生效，模拟分段打字",
+        "default": 600
+    },
+    "气泡间隔抖动上限毫秒": {
+        "type": "int",
+        "description": "多条回复之间随机等待的上限（毫秒）",
+        "default": 2200
+    },
+    "打字延迟下限毫秒": {
+        "type": "int",
+        "description": "首条回复发出前的「看消息+打字」延迟下限",
+        "default": 1500
+    },
+    "打字延迟上限毫秒": {
+        "type": "int",
+        "description": "首条回复发出前的「看消息+打字」延迟上限",
+        "default": 3500
+    },
+    "深夜挂机概率": {
+        "type": "float",
+        "description": "凌晨时段软唤醒时走挂机短句的概率（0~1）",
+        "default": 0.35
+    },
+
+    "记忆注入条数上限": {
+        "type": "int",
+        "description": "写入提示词的历史记忆条数上限",
+        "default": 6
+    },
+    "跨角色共享记忆": {
+        "type": "bool",
+        "description": "不同角色卡是否共用同一份记忆",
+        "default": false
+    },
+    "对话记忆保留天数": {
+        "type": "int",
+        "description": "每个群/私聊的对话记录保留多少天",
+        "default": 90
+    },
+    "对话记忆条数上限": {
+        "type": "int",
+        "description": "每个群/私聊最多存多少条对话记忆",
+        "default": 500
+    },
+    "用户画像锚点上限": {
+        "type": "int",
+        "description": "用户画像里最多记多少条关键信息",
+        "default": 30
+    },
+    "用户画像注入字数": {
+        "type": "int",
+        "description": "写入提示词的用户画像最多多少字",
+        "default": 400
+    },
+    "近聊上文条数": {
+        "type": "int",
+        "description": "唤醒时注入的群聊上文条数（越大越能接多人话题）",
+        "hint": "默认 10；旁听写入的 group tape 会进滑动窗口",
+        "default": 10
+    },
+    "近聊她侧条数": {
+        "type": "int",
+        "description": "附带她最近说过的回复条数，方便语气衔接",
+        "default": 3
+    },
+    "画像总结用哪个模型": {
+        "type": "string",
+        "description": "整理用户画像时用主模型还是备用",
+        "hint": "填 primary 或 fallback",
+        "default": "fallback"
+    },
+    "画像总结最短间隔分钟": {
+        "type": "int",
+        "description": "两次自动整理画像之间至少间隔（分钟）",
+        "default": 30
+    },
+    "画像总结失败退避阈值": {
+        "type": "int",
+        "description": "连续失败多少次后延长重试间隔",
+        "default": 5
+    },
+    "形态最少维持轮数": {
+        "type": "int",
+        "description": "切换粉/黑形态前至少保持几轮",
+        "default": 3
+    },
+    "形态切换领先分差": {
+        "type": "int",
+        "description": "新形态得分需领先当前形态多少才切换",
+        "default": 2
+    },
+    "休息关键词": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "命中后倾向不再回复（如晚安）",
+        "default": ["晚安", "睡了", "别吵", "勿扰"]
+    },
+    "晚安睡到次日": {
+        "type": "bool",
+        "description": "说晚安后是否睡到第二天早上再理人",
+        "default": true
+    },
+    "达妮娅额外唤醒词": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "（旧卡）达妮娅额外唤醒词",
+        "hint": "可留空；新角色用「Aemeath额外唤醒词」",
+        "default": []
+    },
+    "Aemeath额外唤醒词": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "Aemeath 除角色卡外额外识别的唤醒词",
+        "hint": "与 characters/Aemeath/card.yaml 内 wake_words 合并；人设定好后再填",
+        "default": []
+    },
+
+    "启用表情包": {
+        "type": "bool",
+        "description": "是否在合适时机发送表情包",
+        "default": true
+    },
+    "同表情冷却轮数": {
+        "type": "int",
+        "description": "同一张表情再次发送前至少隔几轮",
+        "default": 8
+    },
+    "每回合最多发图数": {
+        "type": "int",
+        "description": "一轮最多发几张表情",
+        "default": 1
+    },
+    "表情文件体积上限兆": {
+        "type": "float",
+        "description": "单张表情最大体积（兆 MB，支持 GIF）",
+        "hint": "填数字即可，如 8 表示约 8MB",
+        "default": 8
+    },
+    "选图最低匹配分": {
+        "type": "float",
+        "description": "标签匹配分低于此值则不发表情",
+        "default": 0.55
+    },
+    "表情加权抽样数量": {
+        "type": "int",
+        "description": "从得分最高的前 K 张里随机抽",
+        "default": 5
+    },
+    "扩展表情标签": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "额外注册的表情标签",
+        "default": []
+    },
+    "用户贴纸覆盖目录": {
+        "type": "string",
+        "description": "自定义贴纸目录",
+        "hint": "留空则用 data/stickers/<角色>/",
+        "default": ""
+    },
+
+    "启用工具调用": {
+        "type": "bool",
+        "description": "是否允许角色调用外部工具",
+        "default": true
+    },
+    "启用MCP工具": {
+        "type": "bool",
+        "description": "是否启用 MCP 工具层",
+        "default": true
+    },
+    "工具默认策略": {
+        "type": "string",
+        "description": "工具开放策略",
+        "hint": "open_with_deny 或 allowlist_only",
+        "default": "open_with_deny"
+    },
+    "每回合最多工具轮数": {
+        "type": "int",
+        "description": "一轮对话里最多几轮工具调用",
+        "default": 3
+    },
+    "单次工具超时秒": {
+        "type": "int",
+        "description": "普通工具调用最长等待（秒）",
+        "default": 30
+    },
+    "慢工具超时秒": {
+        "type": "int",
+        "description": "发图/识图/禁漫下载等慢工具的超时（秒）",
+        "hint": "setu / image_search / jmcomic 系列",
+        "default": 120
+    },
+    "并行工具调用上限": {
+        "type": "int",
+        "description": "同时进行的工具调用数量上限",
+        "default": 2
+    },
+    "工具结果人设化收尾": {
+        "type": "bool",
+        "description": "工具返回后是否用人设语气再包装一遍",
+        "default": true
+    },
+    "适配音乐插件": {
+        "type": "bool",
+        "description": "允许角色调用音乐插件点歌",
+        "hint": "音乐插件自带 play_song_by_name，无需桥接",
+        "default": true
+    },
+    "适配识图插件": {
+        "type": "bool",
+        "description": "允许以图搜图（SauceNAO / Ascii2D / 谷歌）",
+        "hint": "需消息或引用里带图片",
+        "default": true
+    },
+    "适配禁漫插件": {
+        "type": "bool",
+        "description": "允许搜索/查看/下载禁漫本子",
+        "default": true
+    },
+    "适配涩图插件": {
+        "type": "bool",
+        "description": "允许按标签发插画（setu 插件）",
+        "default": true
+    },
+    "适配提醒工具": {
+        "type": "bool",
+        "description": "是否启用内置延时提醒工具",
+        "default": true
+    },
+    "适配禁言工具": {
+        "type": "bool",
+        "description": "是否启用群禁言/解禁工具（机器人需有群管权限）",
+        "default": true
+    },
+    "启用群禁言": {
+        "type": "bool",
+        "description": "总开关：群禁言功能",
+        "default": true
+    },
+    "禁言默认秒数": {
+        "type": "int",
+        "description": "未说明时长时的默认禁言秒数",
+        "default": 60
+    },
+    "禁言最长秒数": {
+        "type": "int",
+        "description": "单次禁言上限秒数（防误伤）",
+        "default": 3600
+    },
+    "禁言保护管理员": {
+        "type": "bool",
+        "description": "禁止禁言超管/管理员名单中的人",
+        "default": true
+    },
+    "禁言需管理员发起": {
+        "type": "bool",
+        "description": "仅超管/管理员/群管可以让她执行禁言",
+        "hint": "关闭则群友也可拜托她禁言（仍需机器人有群管权限）",
+        "default": false
+    },
+    "工具白名单": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "仅允许列表内的工具（allowlist 模式）",
+        "default": []
+    },
+    "工具黑名单": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "禁止调用的工具名",
+        "default": []
+    },
+
+    "同群并行回复数": {
+        "type": "int",
+        "description": "同一群同时处理几条回复",
+        "default": 1
+    },
+    "同群等待队列上限": {
+        "type": "int",
+        "description": "同群 @ 排队等待的最大人数",
+        "default": 3
+    },
+    "全局并行回复上限": {
+        "type": "int",
+        "description": "全插件同时进行的回复总数上限",
+        "default": 8
+    },
+    "队列等待超时秒": {
+        "type": "int",
+        "description": "排队超过此秒数则丢弃",
+        "default": 60
+    },
+    "角色卡提示词清洗": {
+        "type": "bool",
+        "description": "加载角色卡时是否清理 prompt",
+        "default": true
+    },
+    "角色卡提示词最大字节": {
+        "type": "int",
+        "description": "角色卡 system prompt 体积上限",
+        "default": 12000
+    },
+    "超级管理员QQ号": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "超管 QQ 号（面板配置）。拥有全部管理权限，可用命令增删管理员",
+        "hint": "至少填一个自己的号；超管可用 /companion admin add|remove",
+        "default": []
+    },
+    "管理员QQ号": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "普通管理员 QQ 号（也可由超管用命令维护）",
+        "hint": "有上传表情等管理权限，不能改超管/管理员名单",
+        "default": []
+    },
+
+    "启用语音合成": {
+        "type": "bool",
+        "description": "启用云端 TTS（硅基流动 CosyVoice / MiniMax）",
+        "hint": "默认关键词触发；需配置密钥。调试可把「语音触发模式」设为 always",
+        "default": false
+    },
+    "语音服务商": {
+        "type": "string",
+        "description": "TTS 后端",
+        "hint": "siliconflow（推荐，便宜可克隆）或 minimax",
+        "default": "siliconflow"
+    },
+    "语音API密钥": {
+        "type": "string",
+        "description": "语音 API Key（硅基流动或 MiniMax）",
+        "hint": "留空则读环境变量「语音密钥环境变量名」",
+        "default": ""
+    },
+    "语音密钥环境变量名": {
+        "type": "string",
+        "description": "语音 Key 环境变量名",
+        "default": "SILICONFLOW_API_KEY"
+    },
+    "语音接口地址": {
+        "type": "string",
+        "description": "TTS API 根地址",
+        "hint": "硅基：https://api.siliconflow.cn/v1 ；MiniMax：https://api.minimaxi.com",
+        "default": "https://api.siliconflow.cn/v1"
+    },
+    "语音模型": {
+        "type": "string",
+        "description": "TTS 模型",
+        "hint": "硅基推荐 FunAudioLLM/CosyVoice2-0.5B；MiniMax 用 speech-2.8-turbo",
+        "default": "FunAudioLLM/CosyVoice2-0.5B"
+    },
+    "语音音色ID": {
+        "type": "string",
+        "description": "预置音色或已上传克隆 uri",
+        "hint": "硅基预置如 FunAudioLLM/CosyVoice2-0.5B:claire；克隆后填 speech:name:…",
+        "default": "FunAudioLLM/CosyVoice2-0.5B:claire"
+    },
+    "语音参考音频路径": {
+        "type": "string",
+        "description": "硅基动态克隆：本地参考音频路径（8–10 秒清晰人声）",
+        "hint": "与「语音参考音频文稿」同时填；填了会走 references 动态克隆",
+        "default": ""
+    },
+    "语音参考音频文稿": {
+        "type": "string",
+        "description": "参考音频对应的口播原文",
+        "default": ""
+    },
+    "语音情绪": {
+        "type": "string",
+        "description": "默认情绪（模型未指定 voice_emotion 时使用）",
+        "hint": "留空=交给模型/API；可选 happy/sad/angry/fearful/disgusted/surprised/calm",
+        "default": ""
+    },
+    "语音触发模式": {
+        "type": "string",
+        "description": "语音何时发出",
+        "hint": "keyword=说「语音/念一下」才念；always=每条都念；off=强制不念",
+        "default": "keyword"
+    },
+    "语音强制关键词": {
+        "type": "list",
+        "description": "额外强制触发语音的关键词（内置：语音、念一下、听听等）",
+        "hint": "与内置词合并；命中后念完整回复",
+        "items": { "type": "string" },
+        "default": []
+    },
+    "语音最大字数": {
+        "type": "int",
+        "description": "非强制触发时单次朗读最大字数",
+        "default": 80
+    },
+    "语音强制触发最大字数": {
+        "type": "int",
+        "description": "关键词强制触发时完整回复的朗读上限",
+        "default": 200
+    },
+    "语音同时发文字": {
+        "type": "bool",
+        "description": "发语音时是否仍发送文字气泡",
+        "hint": "测试链路建议开启",
+        "default": true
+    },
+    "语音仅念最后一句": {
+        "type": "bool",
+        "description": "always 模式下多气泡时只念最后一句；关键词强制时忽略此项，念完整回复",
+        "default": true
+    },
+    "语音仅私聊": {
+        "type": "bool",
+        "description": "仅 always 模式生效：只在私聊发语音",
+        "default": false
+    }
+}

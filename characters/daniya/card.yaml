@@ -1,0 +1,54 @@
+id: daniya
+display_name: 达妮娅
+aliases: [达妮娅, 达尼娅, Daniya]
+wake_words: [达妮娅, 娅娅, 婭婭]
+version: "1.1.0"
+extensions:
+  daniya:
+    silence_bias: mid
+    talkativeness: 0.65
+    default_form: pink
+    form_min_dwell_turns: 3
+    form_switch_margin: 2
+    memory_namespace: daniya
+    tone_reference: reference/voice_and_action.md
+    tone_reference_max_bytes: 6000
+    anchors: reference/anchors.md
+    anchors_max_bytes: 5000
+    speech_triggers:
+      mentioned: true
+      soft_mention: true
+      keep_going: false
+    relationship_gates:
+      stranger_max_turns: 20
+      warming_min_care_events: 3
+      trusted_min_days: 7
+      flattery_demote: true
+      keep_going_min_tier: warming
+      burden_shared_requires: trusted
+    forms:
+      pink:
+        overlay: "forms/tone_light.md"
+        style_hints: { max_bubbles: 3, max_chars: 120, multi_bubble: true }
+      black:
+        overlay: "forms/tone_quiet.md"
+        style_hints: { max_bubbles: 2, max_chars: 80, multi_bubble: false }
+    topic_avoid: [套路情话, 油腻搭讪, 利用, 交易式讨好]
+    sticker_tags:
+      - tease
+      - playful
+      - shy
+      - warm
+      - lonely
+      - guarded
+      - quiet
+      - speechless
+      - happy
+      - sad
+      - angry
+      - thinking
+      - question
+      - like
+      - tired
+      - cute
+      - approve

@@ -1,0 +1,10 @@
+# 可选；无则按目录扫描。占位示例（需放入真实图片后启用）。
+version: 1
+stickers: []
+# 示例：
+#  - id: pink_tease_01
+#    path: pink/tease_01.webp
+#    tags: [tease, playful]
+#    forms: [pink]
+#    weight: 1.0
+#    enabled: true
