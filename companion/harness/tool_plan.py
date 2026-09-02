@@ -4,6 +4,7 @@ import re
 
 from ..tools.jm_intent import is_jm_download_intent
 from ..tools.link_intent import has_http_url, is_link_read_intent
+from ..tools.mention_intent import is_mention_intent
 from ..tools.mute_intent import is_mute_intent, is_unmute_intent
 from ..tools.reminder_intent import is_reminder_intent
 from ..tools.setu_intent import is_setu_intent
@@ -64,6 +65,15 @@ def plan_tool_order(
                 "本回合只处理禁言，勿调 setu/jmcomic 等发图下载。"
             )
         return ToolPlan(order="tool_first", reason="mute", hint=hint)
+
+    if is_mention_intent(perception.text or ""):
+        hint = (
+            "【节奏·点名@】只调一次 mention_group_member（name 填外号/名片）；"
+            "即使用户说「@十下」也只调 1 次。"
+            "ACK delivered=true 才算真发出；若写跳过/未再发送，说明没再发，"
+            "收尾禁止夸大次数。忽略无关闲聊。本回合勿调发图/下载。"
+        )
+        return ToolPlan(order="tool_first", reason="mention", hint=hint)
 
     slow = _slow_tool_intent(text, perception)
     fast = _fast_tool_intent(text, perception)

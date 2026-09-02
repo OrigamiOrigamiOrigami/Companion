@@ -122,3 +122,45 @@ class MemberCardStore:
             if len(lines) >= 1 + max_neighbors:
                 break
         return "\n".join(lines)
+
+    def _members_dir(self, group_id: str) -> str:
+        g = str(group_id).replace(":", "_")
+        return os.path.join(self.root, "groups", f"group_{g}", "members")
+
+    def list_group_cards(self, group_id: str) -> list[dict[str, Any]]:
+        d = self._members_dir(group_id)
+        if not os.path.isdir(d):
+            return []
+        out: list[dict[str, Any]] = []
+        for name in os.listdir(d):
+            if not name.endswith(".json") or name.startswith("_"):
+                continue
+            uid = name[:-5]
+            if not uid.isdigit():
+                continue
+            out.append(self.load(group_id, uid))
+        return out
+
+    def build_at_name_index(self, group_id: str) -> dict[str, str]:
+        """昵称/外号 → QQ。同名冲突时保留先写入的。"""
+        index: dict[str, str] = {}
+        for card in self.list_group_cards(group_id):
+            uid = str(card.get("user_id") or "").strip()
+            if not uid:
+                continue
+            names: list[str] = []
+            dn = (card.get("display_name") or "").strip()
+            if dn:
+                names.append(dn)
+            for a in card.get("aliases") or []:
+                a = str(a or "").strip()
+                if a:
+                    names.append(a)
+            for n in names:
+                if n not in index:
+                    index[n] = uid
+                elif index[n] != uid:
+                    logger.debug(
+                        "companion @名冲突 name=%s qq=%s/%s", n, index[n], uid
+                    )
+        return index

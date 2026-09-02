@@ -560,3 +560,117 @@ async def unmute_group_member(
         text=f"好啦，已解除 {target} 的禁言~",
         effective=effective,
     )
+
+
+_member_cards: Any | None = None
+
+
+def bind_member_cards(store: Any | None) -> None:
+    global _member_cards
+    _member_cards = store
+
+
+def _resolve_mention_target(
+    event: AstrMessageEvent,
+    *,
+    user_id: str = "",
+    name: str = "",
+) -> tuple[str, str]:
+    """返回 (qq, display_hint)。"""
+    from ..mention_intent import extract_mention_name
+
+    uid = str(user_id or "").strip()
+    if uid.isdigit() and len(uid) >= 5:
+        return uid, uid
+
+    # 消息里已有 @ 组件 / 回复
+    for m in _mentions(event):
+        if m and m != _self_id(event):
+            return m, m
+    reply_uid = _reply_sender_id(event)
+    if reply_uid and reply_uid != _self_id(event):
+        return reply_uid, reply_uid
+
+    want = (name or "").strip() or extract_mention_name(
+        getattr(event, "message_str", None) or ""
+    )
+    if not want:
+        return "", ""
+
+    gid = _group_id(event)
+    store = _member_cards
+    if gid and store is not None and hasattr(store, "build_at_name_index"):
+        try:
+            index = store.build_at_name_index(str(gid))
+        except Exception as e:
+            logger.warning("companion @名索引失败: %s", e)
+            index = {}
+        # 精确
+        if want in index:
+            return index[want], want
+        # 大小写不敏感（外号多为中文，仍兼容）
+        low = {k.lower(): v for k, v in index.items()}
+        if want.lower() in low:
+            return low[want.lower()], want
+        # 包含：外号是名片子串或反
+        for k, v in sorted(index.items(), key=lambda kv: -len(kv[0])):
+            if want in k or k in want:
+                return v, k
+
+    # 纯数字当 QQ
+    if want.isdigit() and len(want) >= 5:
+        return want, want
+    return "", want
+
+
+async def mention_group_member(
+    event: AstrMessageEvent,
+    context: Any,
+    user_id: str = "",
+    name: str = "",
+) -> ToolExecResult:
+    """群聊发出真正的 At；正文 @外号 仅作降级。"""
+    from ...harness.outbound_at import append_at
+
+    gid = _group_id(event)
+    target, hint = _resolve_mention_target(event, user_id=user_id, name=name)
+    effective = {
+        "user_id": target,
+        "name": (name or hint or "").strip(),
+        "group_id": gid or "",
+    }
+    if not gid:
+        return ToolExecResult(text="执行失败：只能在群里@别人哦", effective=effective)
+    if not target:
+        tip = f"（{hint}）" if hint else ""
+        return ToolExecResult(
+            text=f"执行失败：没认出要@的人{tip}，可以说外号或带 QQ",
+            effective=effective,
+        )
+    if target == _self_id(event):
+        return ToolExecResult(text="执行失败：我@我自己？才不要~", effective=effective)
+
+    try:
+        from astrbot.api.message_components import At, Plain
+        from astrbot.core.message.message_event_result import MessageChain
+    except ImportError:
+        return ToolExecResult(text="执行失败：消息组件不可用", effective=effective)
+
+    chain: list[Any] = []
+    append_at(chain, target, At=At, Plain=Plain)
+    try:
+        await event.send(MessageChain(chain))
+    except Exception as e:
+        logger.warning("companion mention 发送失败 qq=%s: %s", target, e)
+        return ToolExecResult(
+            text=f"执行失败：@没发出去 {e}",
+            effective=effective,
+        )
+
+    label = (hint or name or target).strip() or target
+    logger.info("companion 工具@ qq=%s name=%s", target, label)
+    return ToolExecResult(
+        text=f"好啦，已经真@了 {label}（{target}）~（本回合仅此 1 次）",
+        plugin_sent=True,
+        effective=effective,
+    )

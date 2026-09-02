@@ -32,7 +32,11 @@ from ..provider.safety_refuse import (
 )
 from ..reminders import ReminderScheduler, ReminderStore
 from ..stickers.picker import StickerPicker
-from ..tools.adapters.handlers import bind_mute_config, bind_reminder_scheduler
+from ..tools.adapters.handlers import (
+    bind_member_cards,
+    bind_mute_config,
+    bind_reminder_scheduler,
+)
 from ..tools.bridge import ToolBridge
 from ..tools.loop import ToolLoopRunner
 from ..voice import VoiceOutbound, build_tts, is_song_tool_intent
@@ -130,6 +134,7 @@ class HarnessPipeline:
         )
         bind_reminder_scheduler(self.reminders)
         bind_mute_config(config)
+        bind_member_cards(self.member_cards)
 
     def start_background(self) -> None:
         self.reminders.start()
@@ -137,6 +142,7 @@ class HarnessPipeline:
     async def stop_background(self) -> None:
         await self.reminders.stop()
         bind_reminder_scheduler(None)
+        bind_member_cards(None)
 
     async def _compose_reminder_line(self, job: Any) -> str:
         """到点提醒文案：短人设 LLM；失败由 scheduler 回落变体池。"""
@@ -725,6 +731,12 @@ class HarnessPipeline:
         tool_plan = plan_tool_order(perception, state, decision, self.config)
         preface_sink: list[str] = []
         typed_once = {"done": False}
+        at_name_map: dict[str, str] = {}
+        if perception.group_id:
+            try:
+                at_name_map = self.member_cards.build_at_name_index(str(perception.group_id))
+            except Exception as e:
+                logger.warning("companion @名索引失败: %s", e)
 
         async def send_preface(bubble: str) -> None:
             clean = sanitize_outbound_text(
@@ -741,7 +753,7 @@ class HarnessPipeline:
             else:
                 lo, hi = self._bubble_jitter_ms()
                 await self._sleep_jitter(lo, hi)
-            await send_bubble_with_ats(event, clean)
+            await send_bubble_with_ats(event, clean, name_to_qq=at_name_map)
             preface_sink.append(clean)
 
         logger.info(
@@ -866,6 +878,7 @@ class HarnessPipeline:
             force_voice=force_voice,
             poke_user_id=perception.user_id,
             poke_group_id=perception.group_id,
+            at_name_map=at_name_map,
         )
 
     async def _send(
@@ -878,6 +891,7 @@ class HarnessPipeline:
         force_voice: bool = False,
         poke_user_id: str | None = None,
         poke_group_id: str | None = None,
+        at_name_map: dict[str, str] | None = None,
     ):
         expr = self.config.get("express") or {}
         style = {}
@@ -920,16 +934,19 @@ class HarnessPipeline:
         )
 
         lo, hi = self._bubble_jitter_ms()
+        name_map = at_name_map or {}
         try:
             if keep_text or not want_voice:
                 for i, bubble in enumerate(result.bubbles):
                     if i > 0:
                         await self._sleep_jitter(lo, hi)
-                    await send_bubble_with_ats(event, bubble)
+                    await send_bubble_with_ats(event, bubble, name_to_qq=name_map)
             if want_voice and result.bubbles:
                 if keep_text:
                     await self._sleep_jitter(lo, hi)
-                voice_bubbles = [strip_at_markers(b) or b for b in result.bubbles]
+                voice_bubbles = [
+                    strip_at_markers(b, name_to_qq=name_map) or b for b in result.bubbles
+                ]
                 await self.voice.send_voice(
                     event,
                     voice_bubbles,

@@ -198,6 +198,7 @@ DEFAULTS: dict[str, Any] = {
             "setu": True,
             "reminder": True,
             "mute": True,
+            "mention": True,
         },
     },
     "concurrency": {
@@ -328,6 +329,7 @@ FLAT_KEY_PATHS: dict[str, tuple[str, ...]] = {
     "适配涩图插件": ("tools", "adapters", "setu"),
     "适配提醒工具": ("tools", "adapters", "reminder"),
     "适配禁言工具": ("tools", "adapters", "mute"),
+    "适配点名工具": ("tools", "adapters", "mention"),
     "启用群禁言": ("mute", "enabled"),
     "禁言默认秒数": ("mute", "default_duration_sec"),
     "禁言最短秒数": ("mute", "min_duration_sec"),

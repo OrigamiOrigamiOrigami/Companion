@@ -13,6 +13,7 @@ DELIVERED_TOOLS = frozenset(
         "image_search_ascii2d",
         "image_search_google",
         "play_song_by_name",
+        "mention_group_member",
     }
 )
 
@@ -174,6 +175,9 @@ def _infer_delivered(tool: str, raw: str, *, ok: bool, plugin_sent: bool) -> boo
     if tool == "play_song_by_name":
         return plugin_sent or bool(text and not _has_fail_marker(text))
 
+    if tool == "mention_group_member":
+        return bool(plugin_sent)
+
     if tool in DELIVERED_TOOLS:
         return plugin_sent
 
@@ -187,6 +191,12 @@ def _has_any_marker(text: str, markers: tuple[str, ...]) -> bool:
 def _summarize(tool: str, raw: str, *, ok: bool, delivered: bool) -> str:
     if not ok:
         return raw[:200] if raw else f"{tool} 未成功"
+    if tool == "mention_group_member":
+        if delivered:
+            return raw[:200] if raw else "已发出真正的 @（本回合 1 次）"
+        if "未再" in raw or "跳过" in raw or "已执行过" in raw:
+            return raw[:200]
+        return raw[:200] if raw else "命令完成但未确认 @ 是否发出"
     if delivered:
         if tool.startswith("setu_"):
             return "图已发到聊天"

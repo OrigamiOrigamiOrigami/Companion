@@ -414,6 +414,11 @@
         "description": "是否启用群禁言/解禁工具（机器人需有群管权限）",
         "default": true
     },
+    "适配点名工具": {
+        "type": "bool",
+        "description": "是否启用群聊真@点名工具 mention_group_member",
+        "default": true
+    },
     "启用群禁言": {
         "type": "bool",
         "description": "总开关：群禁言功能",

@@ -359,8 +359,8 @@ class Expressor:
                         "按本条语气选最贴的情绪 tag，文案与 intent 同向。\n"
                         "- poke_wanted：多数写 false；调侃/tease/playful、熟人犯贱、"
                         "或刚被戳时可写 true 戳回对方；勿每轮都戳。\n"
-                        "- 【群聊@】需要点名时在正文写 @[qq:QQ号]（上文/对方处有 昵称(QQ)）；"
-                        "也可写 @昵称(QQ号)。系统会转成真正的@；不要瞎编 QQ，别刷屏@。\n"
+                        "- 【群聊@】要点名时优先调 mention_group_member（外号/QQ）；"
+                        "ACK 成功后再口语接一句。正文写 @外号 只是降级兜底。\n"
                         f"- {form_soft}不要输出文件名/路径。\n"
                         f"- 最近已发过的表情意图（尽量别连发同一情绪）：{recent_line}\n"
                     ),
@@ -503,7 +503,7 @@ def _format_user_turn(
         if uid:
             chunks.append(
                 f"【对方】本群称呼/昵称：{label}（QQ={uid}）。"
-                f"可自然这样叫对方；要真@对方时写 @[qq:{uid}]。"
+                f"可自然这样叫对方；要真@对方时写 @{label} 或 @[qq:{uid}]。"
                 "别每句硬喊，也别改成别的外号（除非对方刚说过）。"
             )
         else:

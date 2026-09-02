@@ -34,6 +34,7 @@ SINGLE_SHOT_TOOLS = frozenset(
         "cancel_reminder",
         "mute_group_member",
         "unmute_group_member",
+        "mention_group_member",
     }
 )
 

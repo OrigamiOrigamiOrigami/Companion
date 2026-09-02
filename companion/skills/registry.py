@@ -5,6 +5,7 @@ from typing import Any
 
 from ..tools.jm_intent import extract_comic_id, is_jm_context, is_jm_search_intent
 from ..tools.link_intent import extract_urls, has_http_url
+from ..tools.mention_intent import is_mention_intent
 from ..tools.mute_intent import is_mute_intent
 from ..tools.reminder_intent import is_reminder_intent
 from ..tools.setu_intent import is_setu_intent, parse_llm_setu_tags
@@ -21,6 +22,7 @@ _SKILL_FILES: tuple[tuple[str, str, str], ...] = (
     ("image_search", "astrbot", "astrbot/image_search.md"),
     ("reminder", "astrbot", "astrbot/reminder.md"),
     ("mute", "astrbot", "astrbot/mute.md"),
+    ("mention", "astrbot", "astrbot/mention.md"),
     ("fetch_web", "mcp", "mcp/fetch_web.md"),
     ("mcp_generic", "mcp", "mcp/_generic.md"),
 )
@@ -33,6 +35,7 @@ _CATALOG_BLURB: dict[str, str] = {
     "image_search": "有图且问出处/作者时",
     "reminder": "要闹钟/N分钟后提醒/到点喊我时",
     "mute": "要禁言/闭嘴/解禁某人时",
+    "mention": "要真@/艾特/点名/喊某人出来时",
     "fetch_web": "消息里有链接要打开/概括时",
     "mcp_generic": "明确要搜/查且无更贴专用技能时",
 }
@@ -84,13 +87,16 @@ class SkillRegistry:
         mute_hit = is_mute_intent(text) and (
             "mute_group_member" in names or "unmute_group_member" in names
         )
+        mention_hit = is_mention_intent(text) and ("mention_group_member" in names)
         if reminder_hit:
             business.append("reminder")
         if mute_hit:
             business.append("mute")
+        if mention_hit:
+            business.append("mention")
 
-        # 禁言/提醒回合不要因 @QQ 数字误展开 jmcomic / setu
-        if not mute_hit and not reminder_hit:
+        # 禁言/提醒/点名回合不要因 @QQ 数字误展开 jmcomic / setu
+        if not mute_hit and not reminder_hit and not mention_hit:
             if is_setu_intent(text) and "setu_send_image" in names:
                 business.append("setu")
 
@@ -117,6 +123,7 @@ class SkillRegistry:
             "image_search",
             "reminder",
             "mute",
+            "mention",
             "fetch_web",
         }
         if (
@@ -161,6 +168,8 @@ class SkillRegistry:
             out.append(("reminder", "astrbot"))
         if "mute_group_member" in names or "unmute_group_member" in names:
             out.append(("mute", "astrbot"))
+        if "mention_group_member" in names:
+            out.append(("mention", "astrbot"))
         if any("fetch" in n for n in names):
             out.append(("fetch_web", "mcp"))
         # 其它 MCP：有则列 mcp_generic 作为入口；具体名在目录行里带上

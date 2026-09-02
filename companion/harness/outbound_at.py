@@ -1,9 +1,9 @@
-"""出站 @： At + Plain + MessageChain。
+"""出站 @：与提醒同一套 At + Plain + MessageChain。
 
-LLM 群聊写法：
-  @[qq:123456789]
-  @[123456789]
+可解析写法：
+  @[qq:123456789] / @[123456789]
   @昵称(123456789)
+  @同志猪 / @群名片   ← 按群友卡昵称·外号解析成真 At
 """
 
 from __future__ import annotations
@@ -15,44 +15,96 @@ from typing import Any
 logger = logging.getLogger("astrbot")
 
 # @[qq:UID] / @[UID] / @昵称(UID)
-_AT_MARK_RE = re.compile(
+_AT_EXPLICIT_RE = re.compile(
     r"@\[(?:qq[:：]\s*)?(\d{5,12})\]"
     r"|@([^\s@\[\]()]{1,32})\((\d{5,12})\)",
     re.IGNORECASE,
 )
 
 
-def strip_at_markers(text: str) -> str:
+def _name_at_pattern(names: list[str]) -> re.Pattern[str] | None:
+    """按长度优先匹配 @昵称（最长优先，避免短名误伤）。"""
+    cleaned = sorted(
+        {n.strip() for n in names if n and len(n.strip()) >= 2},
+        key=len,
+        reverse=True,
+    )
+    if not cleaned:
+        return None
+    alts = "|".join(re.escape(n) for n in cleaned)
+    # 不要求空格：@同志猪出来 → 命中「同志猪」
+    return re.compile(rf"@({alts})")
+
+
+def strip_at_markers(text: str, *, name_to_qq: dict[str, str] | None = None) -> str:
     """TTS / 记忆摘要：去掉标记，保留可读称呼。"""
 
-    def _repl(m: re.Match[str]) -> str:
+    def _repl_explicit(m: re.Match[str]) -> str:
         if m.group(1):
             return ""
         name = (m.group(2) or "").strip()
         return f"@{name}" if name else ""
 
-    out = _AT_MARK_RE.sub(_repl, text or "")
+    out = _AT_EXPLICIT_RE.sub(_repl_explicit, text or "")
+    pat = _name_at_pattern(list((name_to_qq or {}).keys()))
+    if pat:
+
+        def _repl_name(m: re.Match[str]) -> str:
+            return f"@{m.group(1)}"
+
+        out = pat.sub(_repl_name, out)
     return re.sub(r"[ \t]{2,}", " ", out).strip()
 
 
-def split_at_segments(text: str) -> list[tuple[str, str]]:
-    """拆成 [('at'|'plain', value), ...]。"""
+def split_at_segments(
+    text: str,
+    *,
+    name_to_qq: dict[str, str] | None = None,
+) -> list[tuple[str, str]]:
+    """拆成 [('at'|'plain', value), ...]；at 的 value 为 QQ 号。"""
     raw = text or ""
     if not raw:
         return []
-    out: list[tuple[str, str]] = []
-    pos = 0
-    for m in _AT_MARK_RE.finditer(raw):
-        if m.start() > pos:
-            out.append(("plain", raw[pos : m.start()]))
+
+    hits: list[tuple[int, int, str]] = []  # start, end, qq
+
+    for m in _AT_EXPLICIT_RE.finditer(raw):
         qq = (m.group(1) or m.group(3) or "").strip()
         if qq:
-            out.append(("at", qq))
-        pos = m.end()
+            hits.append((m.start(), m.end(), qq))
+
+    pat = _name_at_pattern(list((name_to_qq or {}).keys()))
+    if pat and name_to_qq:
+        for m in pat.finditer(raw):
+            name = m.group(1)
+            qq = name_to_qq.get(name) or ""
+            if not qq:
+                continue
+            # 与显式标记重叠则跳过
+            if any(not (m.end() <= s or m.start() >= e) for s, e, _ in hits):
+                continue
+            hits.append((m.start(), m.end(), qq))
+
+    hits.sort(key=lambda x: x[0])
+    # 去重叠：保留先出现的
+    merged: list[tuple[int, int, str]] = []
+    for h in hits:
+        if merged and h[0] < merged[-1][1]:
+            continue
+        merged.append(h)
+
+    if not merged:
+        return [("plain", raw)]
+
+    out: list[tuple[str, str]] = []
+    pos = 0
+    for start, end, qq in merged:
+        if start > pos:
+            out.append(("plain", raw[pos:start]))
+        out.append(("at", qq))
+        pos = end
     if pos < len(raw):
         out.append(("plain", raw[pos:]))
-    if not out:
-        out.append(("plain", raw))
     return out
 
 
@@ -69,19 +121,16 @@ def build_at_text_chain(
     text: str,
     *,
     leading_qq: str | int | None = None,
+    name_to_qq: dict[str, str] | None = None,
     At: Any,
     Plain: Any,
 ) -> list[Any]:
-    """拼 MessageChain 组件列表。
-
-    - leading_qq：提醒那种「先 @ 再正文」
-    - 正文里的 @[qq:…] / @昵称(QQ) 也会拆成真 At
-    """
+    """拼 MessageChain 组件列表。"""
     chain: list[Any] = []
     if leading_qq not in (None, ""):
         append_at(chain, leading_qq, At=At, Plain=Plain)
 
-    segs = split_at_segments(text or "")
+    segs = split_at_segments(text or "", name_to_qq=name_to_qq)
     has_inline = any(k == "at" for k, _ in segs)
     if not has_inline:
         body = (text or "").strip()
@@ -109,11 +158,21 @@ def build_at_text_chain(
     return chain
 
 
-async def send_bubble_with_ats(event: Any, text: str) -> None:
-    """发送一条气泡；有 @ 标记时与提醒同一套 MessageChain。"""
+def has_resolvable_at(text: str, *, name_to_qq: dict[str, str] | None = None) -> bool:
+    segs = split_at_segments(text or "", name_to_qq=name_to_qq)
+    return any(k == "at" for k, _ in segs)
+
+
+async def send_bubble_with_ats(
+    event: Any,
+    text: str,
+    *,
+    name_to_qq: dict[str, str] | None = None,
+) -> None:
+    """发送一条气泡；能解析到 QQ 时走真 At MessageChain。"""
     from astrbot.api.all import CommandResult
 
-    if not _AT_MARK_RE.search(text or ""):
+    if not has_resolvable_at(text, name_to_qq=name_to_qq):
         await event.send(CommandResult().message(text))
         return
 
@@ -121,14 +180,18 @@ async def send_bubble_with_ats(event: Any, text: str) -> None:
         from astrbot.api.message_components import At, Plain
         from astrbot.core.message.message_event_result import MessageChain
     except ImportError:
-        await event.send(CommandResult().message(strip_at_markers(text) or text))
+        await event.send(
+            CommandResult().message(strip_at_markers(text, name_to_qq=name_to_qq) or text)
+        )
         return
 
-    chain = build_at_text_chain(text, At=At, Plain=Plain)
+    chain = build_at_text_chain(text, name_to_qq=name_to_qq, At=At, Plain=Plain)
     if not chain:
-        await event.send(CommandResult().message(strip_at_markers(text) or "……"))
+        await event.send(
+            CommandResult().message(strip_at_markers(text, name_to_qq=name_to_qq) or "……")
+        )
         return
 
     await event.send(MessageChain(chain))
-    qqs = [v for k, v in split_at_segments(text) if k == "at"]
+    qqs = [v for k, v in split_at_segments(text, name_to_qq=name_to_qq) if k == "at"]
     logger.info("companion 出站@ qq=%s", ",".join(qqs))

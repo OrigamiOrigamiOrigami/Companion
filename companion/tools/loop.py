@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..provider.router import ProviderRouter
-from .ack import parse_tool_ack, tool_failed
+from .ack import parse_tool_ack, tool_failed, build_tool_ack
 from .bridge import ToolBridge
 from .bridge import SINGLE_SHOT_TOOLS
 
@@ -19,6 +19,7 @@ _TERMINAL_INTENT_TOOLS = frozenset(
         "unmute_group_member",
         "schedule_reminder",
         "cancel_reminder",
+        "mention_group_member",
     }
 )
 
@@ -26,6 +27,7 @@ _TERMINAL_INTENT_TOOLS = frozenset(
 _INTENT_TOOL_ALLOW: dict[str, frozenset[str]] = {
     "mute": frozenset({"mute_group_member", "unmute_group_member"}),
     "reminder": frozenset({"schedule_reminder", "cancel_reminder"}),
+    "mention": frozenset({"mention_group_member"}),
 }
 
 
@@ -99,8 +101,9 @@ class ToolLoopRunner:
                 await on_preface(preface)
 
             working.append(message)
-            batch = tool_calls[:parallel_max]
-            for tc in batch:
+            # 每个 tool_call_id 都必须有回执；单次工具只真实执行一次
+            real_runs = 0
+            for tc in tool_calls:
                 fn = tc.get("function") or {}
                 name = (fn.get("name") or "").strip()
                 if not name:
@@ -110,18 +113,40 @@ class ToolLoopRunner:
                     args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
                 except json.JSONDecodeError:
                     args = {}
+
                 skipped_dup = name in SINGLE_SHOT_TOOLS and name in turn_tool_cache
-                result = await self._execute_tool(
-                    name,
-                    args,
-                    event=event,
-                    turn_tool_cache=turn_tool_cache,
+                over_parallel = (
+                    not skipped_dup
+                    and name not in SINGLE_SHOT_TOOLS
+                    and real_runs >= parallel_max
                 )
+                if over_parallel:
+                    result = build_tool_ack(
+                        name,
+                        f"未执行：本轮并行额度已满（最多 {parallel_max} 个），本次未发送。",
+                        ok=True,
+                        delivered=False,
+                    )
+                    logger.info("companion 工具跳过（并行上限）名称=%s", name)
+                else:
+                    result = await self._execute_tool(
+                        name,
+                        args,
+                        event=event,
+                        turn_tool_cache=turn_tool_cache,
+                    )
+                    if not skipped_dup and not (
+                        parse_tool_ack(result) or {}
+                    ).get("skipped_duplicate"):
+                        real_runs += 1
+
                 used.append(name)
                 entry: dict[str, Any] = {
                     "name": name,
                     "tool_call_id": tc.get("id") or name,
-                    "raw_arguments": raw_args if isinstance(raw_args, str) else json.dumps(raw_args, ensure_ascii=False),
+                    "raw_arguments": raw_args
+                    if isinstance(raw_args, str)
+                    else json.dumps(raw_args, ensure_ascii=False),
                     "arguments": args,
                     "result": result,
                 }
@@ -132,7 +157,7 @@ class ToolLoopRunner:
                     pass
                 if ack:
                     entry["ack"] = ack
-                if skipped_dup:
+                if skipped_dup or (ack or {}).get("skipped_duplicate") or over_parallel:
                     entry["skipped_duplicate"] = True
                 round_entry["tool_calls"].append(entry)
                 working.append(
@@ -152,6 +177,9 @@ class ToolLoopRunner:
                         "content": (
                             "本回合管理类工具已执行完毕。请根据 ACK 用人设口语收尾；"
                             "勿再调用任何工具。ok=false 如实说明原因。"
+                            "必须以 ACK 的实际结果为准：delivered=true 才算真的发出去；"
+                            "若 ACK 写「跳过/未再发送」，说明只成功过更早那一次，"
+                            "即使用户说「十下」也禁止夸大成多次。"
                             "必须输出一句可见口语；不要只写 emotion/sticker/poke 控制行。"
                         ),
                     }
@@ -165,8 +193,9 @@ class ToolLoopRunner:
                         "role": "system",
                         "content": (
                             "工具已执行完毕。请根据 ACK 收尾："
-                            "发图/下载/点歌：delivered=true 才可确认已到聊天；"
-                            "delivered=false 勿说「发给你了」。"
+                            "发图/下载/点歌/@：delivered=true 才可确认已到聊天；"
+                            "delivered=false 勿说「发给你了/已经@了」除非 summary 另有说明。"
+                            "ACK 写跳过/未再发送 → 不要说又做了一次。"
                             "提醒/取消提醒：ok=true 即已办妥，口语确认即可，勿因 delivered=false 犹豫。"
                             "ok=false 用人设简短道歉。勿重复调工具。"
                             "必须输出一句可见口语；不要只写 emotion/sticker/poke 控制行。"
@@ -235,7 +264,20 @@ class ToolLoopRunner:
         turn_tool_cache: dict[str, str],
     ) -> str:
         if name in SINGLE_SHOT_TOOLS and name in turn_tool_cache:
-            cached = turn_tool_cache[name]
+            # 不可复读成功 ACK，否则模型会以为又做成了一次
+            skip = build_tool_ack(
+                name,
+                "跳过：本回合该工具已执行过，本次未再发送。勿声称又成功了一次。",
+                ok=True,
+                delivered=False,
+            )
+            # 标记给日志
+            try:
+                data = json.loads(skip)
+                data["skipped_duplicate"] = True
+                skip = json.dumps(data, ensure_ascii=False)
+            except Exception:
+                pass
             logger.info("companion 工具跳过重复调用 名称=%s", name)
             self.bridge.record_invocation(
                 {
@@ -244,12 +286,12 @@ class ToolLoopRunner:
                     "effective": {},
                     "plugin_raw": "",
                     "plugin_sent": False,
-                    "ack": parse_tool_ack(cached) or {},
-                    "response": cached,
+                    "ack": parse_tool_ack(skip) or {},
+                    "response": skip,
                     "skipped_duplicate": True,
                 }
             )
-            return cached
+            return skip
         result = await self.bridge.execute(name, args, event=event)
         if name in SINGLE_SHOT_TOOLS and not _tool_result_failed(result):
             turn_tool_cache[name] = result

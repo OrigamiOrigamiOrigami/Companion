@@ -95,6 +95,16 @@ ADAPTER_SPECS: list[tuple[str, str, list, Callable[..., Awaitable[str]], str]] =
         handlers.unmute_group_member,
         "mute",
     ),
+    (
+        "mention_group_member",
+        "群聊真正@某人（发出 At 组件）。用户让你@/艾特/点名/喊某某出来时用；name 填外号或群名片，或填 user_id。优先本工具，不要只在正文写假@。",
+        [
+            {"type": "string", "name": "name", "description": "要@的外号或群名片，如「同志猪」"},
+            {"type": "string", "name": "user_id", "description": "要@的 QQ 号；与 name 二选一，可空由原话推断"},
+        ],
+        handlers.mention_group_member,
+        "mention",
+    ),
 ]
 
 MUSIC_NATIVE_TOOL = "play_song_by_name"
@@ -115,6 +125,7 @@ class AdapterRegistry:
                 "setu": True,
                 "reminder": True,
                 "mute": True,
+                "mention": True,
             }
 
         registered: list[str] = []
