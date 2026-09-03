@@ -51,6 +51,7 @@ from .poke import parse_poke, pick_poke_reply, pick_poke_sticker_intent, send_po
 from .presence import is_night_hours, typing_delay_ms
 from .rate_limit import TurnRateLimiter
 from .tool_plan import plan_tool_order
+from .turn_gate import TurnGate
 from .types import Decision, ExpressResult, InnerState, Perception
 
 logger = logging.getLogger("astrbot")
@@ -89,6 +90,7 @@ class HarnessPipeline:
         )
         self.member_cards = MemberCardStore(self.memory.root)
         self.rate_limiter = TurnRateLimiter()
+        self.turn_gate = TurnGate()
 
         stickers_cfg = config.get("stickers") or {}
         override = stickers_cfg.get("data_override_dir") or os.path.join(
@@ -604,282 +606,304 @@ class HarnessPipeline:
                 logger.warning("旁观记录写入失败: %s", e)
             return None
 
-        # 深夜挂机短句：不走 LLM，直接变体池
-        if decision.reason == "night_afk":
-            line = pick_variant("night_afk")
-            result = ExpressResult(bubbles=[line], degraded=False)
-            try:
-                self._record_observation(
-                    perception,
-                    reply=line[:120],
-                    form=state.active_form,
-                )
-            except Exception as e:
-                logger.warning("情景记忆写入失败: %s", e)
-            if perception.group_id:
-                cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
-                self._group_cd[str(perception.group_id)] = time.time() + cd
-            return await self._send(
-                event,
-                result,
-                state=state,
-                is_private=perception.is_private,
-                force_voice=False,
-            )
-
-        group_cfg = self.config.get("group") or {}
-        dedupe_sec = float(group_cfg.get("dedupe_sec") or 45)
-        user_cd = float(
-            group_cfg.get("user_cooldown_sec")
-            if group_cfg.get("user_cooldown_sec") is not None
-            else (group_cfg.get("cooldown_sec") or 8)
-        )
-        rate_hit = self.rate_limiter.check(
-            channel=perception.channel,
-            user_id=perception.user_id,
-            text=perception.text or "",
-            dedupe_sec=dedupe_sec,
-            user_cooldown_sec=user_cd,
-        )
-        if rate_hit:
-            logger.info(
-                "companion 限流=%s 频道=%s 用户=%s",
-                rate_hit.reason,
-                perception.channel,
-                perception.user_id,
-            )
-            self._apply_anchors(perception)
-            try:
-                self._record_observation(
-                    perception,
-                    form=state.active_form,
-                    observed=True,
-                )
-            except Exception as e:
-                logger.warning("限流旁观记录写入失败: %s", e)
+        gate_key = str(perception.channel or f"user:{perception.user_id}")
+        conc = self.config.get("concurrency") or {}
+        global_max = int(conc.get("global_max") or 0)
+        # per_group>0 启用同频道容量 1；忙则提示，不排队
+        gate_on = int(conc.get("per_group") if conc.get("per_group") is not None else 1) > 0
+        if gate_on and not await self.turn_gate.try_acquire(gate_key, global_max=global_max):
+            await self._send_busy_tip(event, perception)
             return None
 
-        self.rate_limiter.commit(
-            channel=perception.channel,
-            user_id=perception.user_id,
-            text=perception.text or "",
-            dedupe_sec=dedupe_sec,
-            user_cooldown_sec=user_cd,
-        )
+        reply_quote = {"id": self._event_message_id(event), "used": False}
+        try:
+            # 深夜挂机短句：不走 LLM，直接变体池
+            if decision.reason == "night_afk":
+                line = pick_variant("night_afk")
+                result = ExpressResult(bubbles=[line], degraded=False)
+                try:
+                    self._record_observation(
+                        perception,
+                        reply=line[:120],
+                        form=state.active_form,
+                    )
+                except Exception as e:
+                    logger.warning("情景记忆写入失败: %s", e)
+                if perception.group_id:
+                    cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
+                    self._group_cd[str(perception.group_id)] = time.time() + cd
+                return await self._send(
+                    event,
+                    result,
+                    state=state,
+                    is_private=perception.is_private,
+                    force_voice=False,
+                    reply_quote_id=None if reply_quote["used"] else reply_quote["id"],
+                    reply_quote_state=reply_quote,
+                )
 
-        self.tool_bridge.begin_turn(card=self.card)
+            group_cfg = self.config.get("group") or {}
+            dedupe_sec = float(group_cfg.get("dedupe_sec") or 45)
+            user_cd = float(
+                group_cfg.get("user_cooldown_sec")
+                if group_cfg.get("user_cooldown_sec") is not None
+                else (group_cfg.get("cooldown_sec") or 8)
+            )
+            rate_hit = self.rate_limiter.check(
+                channel=perception.channel,
+                user_id=perception.user_id,
+                text=perception.text or "",
+                dedupe_sec=dedupe_sec,
+                user_cooldown_sec=user_cd,
+            )
+            if rate_hit:
+                logger.info(
+                    "companion 限流=%s 频道=%s 用户=%s",
+                    rate_hit.reason,
+                    perception.channel,
+                    perception.user_id,
+                )
+                self._apply_anchors(perception)
+                try:
+                    self._record_observation(
+                        perception,
+                        form=state.active_form,
+                        observed=True,
+                    )
+                except Exception as e:
+                    logger.warning("限流旁观记录写入失败: %s", e)
+                return None
 
-        self._apply_anchors(perception)
-        memory_block = self.memory.inject_block(
-            perception.user_id,
-            perception.channel,
-            max_chars=int(
-                (self.config.get("memory") or {}).get("portrait_inject_max_chars") or 400
-            ),
-        )
-        memory_block = self._with_pending_reminders(
-            memory_block,
-            user_id=perception.user_id,
-            group_id=perception.group_id,
-        )
-        allow_tags = list(self.card.companion_ext.get("sticker_tags") or self.stickers.allow_tags)
+            self.rate_limiter.commit(
+                channel=perception.channel,
+                user_id=perception.user_id,
+                text=perception.text or "",
+                dedupe_sec=dedupe_sec,
+                user_cooldown_sec=user_cd,
+            )
 
-        mem_cfg = self.config.get("memory") or {}
-        # 群聊默认拉更长滑动窗，便于接话
-        default_before = 10 if perception.group_id else 3
-        nearby = self.memory.nearby_context(
-            perception.user_id,
-            perception.channel,
-            before_n=int(mem_cfg.get("nearby_before") or default_before),
-            after_n=int(mem_cfg.get("nearby_after") or 3),
-            current_text=perception.text or "",
-        )
-        force_voice = self._detect_force_voice(perception, nearby)
-        # 纯「用语音说某句」：关掉工具，避免点歌/搜旧话题串戏
-        voice_speak_only = force_voice and not is_song_tool_intent(perception.text or "")
-        if voice_speak_only:
-            decision = Decision(decision.action, decision.reason, allow_tools=False)
-            # 念白回合只留画像，去掉群 tape/episodic 里「她回过 CosyVoice」之类长串
+            self.tool_bridge.begin_turn(card=self.card)
+
+            self._apply_anchors(perception)
             memory_block = self.memory.inject_block(
                 perception.user_id,
                 perception.channel,
                 max_chars=int(
                     (self.config.get("memory") or {}).get("portrait_inject_max_chars") or 400
                 ),
-                portrait_only=True,
             )
+            memory_block = self._with_pending_reminders(
+                memory_block,
+                user_id=perception.user_id,
+                group_id=perception.group_id,
+            )
+            allow_tags = list(self.card.companion_ext.get("sticker_tags") or self.stickers.allow_tags)
 
-        if perception.group_id:
-            neighbor_ids = [
-                str(item.get("user_id") or "")
-                for item in (nearby.get("before") or [])
-                if item.get("user_id")
-            ]
-            card_block = self.member_cards.inject_block(
-                str(perception.group_id),
+            mem_cfg = self.config.get("memory") or {}
+            # 群聊默认拉更长滑动窗，便于接话
+            default_before = 10 if perception.group_id else 3
+            nearby = self.memory.nearby_context(
                 perception.user_id,
-                neighbor_ids=neighbor_ids,
-                max_neighbors=3,
+                perception.channel,
+                before_n=int(mem_cfg.get("nearby_before") or default_before),
+                after_n=int(mem_cfg.get("nearby_after") or 3),
+                current_text=perception.text or "",
             )
-            if card_block:
-                memory_block = (
-                    f"{memory_block}\n{card_block}".strip()
-                    if memory_block
-                    else card_block
+            force_voice = self._detect_force_voice(perception, nearby)
+            # 纯「用语音说某句」：关掉工具，避免点歌/搜旧话题串戏
+            voice_speak_only = force_voice and not is_song_tool_intent(perception.text or "")
+            if voice_speak_only:
+                decision = Decision(decision.action, decision.reason, allow_tools=False)
+                # 念白回合只留画像，去掉群 tape/episodic 里「她回过 CosyVoice」之类长串
+                memory_block = self.memory.inject_block(
+                    perception.user_id,
+                    perception.channel,
+                    max_chars=int(
+                        (self.config.get("memory") or {}).get("portrait_inject_max_chars") or 400
+                    ),
+                    portrait_only=True,
                 )
 
-        tool_plan = plan_tool_order(perception, state, decision, self.config)
-        preface_sink: list[str] = []
-        typed_once = {"done": False}
-        at_name_map: dict[str, str] = {}
-        if perception.group_id:
-            try:
-                at_name_map = self.member_cards.build_at_name_index(str(perception.group_id))
-            except Exception as e:
-                logger.warning("companion @名索引失败: %s", e)
+            if perception.group_id:
+                neighbor_ids = [
+                    str(item.get("user_id") or "")
+                    for item in (nearby.get("before") or [])
+                    if item.get("user_id")
+                ]
+                card_block = self.member_cards.inject_block(
+                    str(perception.group_id),
+                    perception.user_id,
+                    neighbor_ids=neighbor_ids,
+                    max_neighbors=3,
+                )
+                if card_block:
+                    memory_block = (
+                        f"{memory_block}\n{card_block}".strip()
+                        if memory_block
+                        else card_block
+                    )
 
-        async def send_preface(bubble: str) -> None:
-            clean = sanitize_outbound_text(
-                bubble, strip_asterisk_actions=self._strip_asterisk_actions()
+            tool_plan = plan_tool_order(perception, state, decision, self.config)
+            preface_sink: list[str] = []
+            typed_once = {"done": False}
+            at_name_map: dict[str, str] = {}
+            if perception.group_id:
+                try:
+                    at_name_map = self.member_cards.build_at_name_index(str(perception.group_id))
+                except Exception as e:
+                    logger.warning("companion @名索引失败: %s", e)
+
+            async def send_preface(bubble: str) -> None:
+                clean = sanitize_outbound_text(
+                    bubble, strip_asterisk_actions=self._strip_asterisk_actions()
+                )
+                if not clean:
+                    return
+                # 同轮工具前言勿连发相同句
+                if preface_sink and preface_sink[-1] == clean:
+                    return
+                if not typed_once["done"]:
+                    await self._typing_delay([clean])
+                    typed_once["done"] = True
+                else:
+                    lo, hi = self._bubble_jitter_ms()
+                    await self._sleep_jitter(lo, hi)
+                rid = None if reply_quote["used"] else reply_quote["id"]
+                await send_bubble_with_ats(event, clean, name_to_qq=at_name_map, reply_id=rid)
+                if rid not in (None, ""):
+                    reply_quote["used"] = True
+                preface_sink.append(clean)
+
+            logger.info(
+                "companion 工具序=%s 原因=%s 强制语音=%s 上文=%s 下文=%s",
+                tool_plan.order,
+                tool_plan.reason,
+                force_voice,
+                len(nearby.get("before") or []),
+                len(nearby.get("after") or []),
             )
-            if not clean:
-                return
-            # 同轮工具前言勿连发相同句
-            if preface_sink and preface_sink[-1] == clean:
-                return
-            if not typed_once["done"]:
-                await self._typing_delay([clean])
-                typed_once["done"] = True
-            else:
-                lo, hi = self._bubble_jitter_ms()
-                await self._sleep_jitter(lo, hi)
-            await send_bubble_with_ats(event, clean, name_to_qq=at_name_map)
-            preface_sink.append(clean)
 
-        logger.info(
-            "companion 工具序=%s 原因=%s 强制语音=%s 上文=%s 下文=%s",
-            tool_plan.order,
-            tool_plan.reason,
-            force_voice,
-            len(nearby.get("before") or []),
-            len(nearby.get("after") or []),
-        )
-
-        result: ExpressResult = await self.expressor.run(
-            self.card,
-            state,
-            perception,
-            memory_block,
-            decision,
-            allow_tags,
-            event=event,
-            tool_plan=tool_plan,
-            send_preface=send_preface,
-            preface_sink=preface_sink,
-            force_voice=force_voice,
-            nearby=nearby,
-            recent_sticker_intents=self.stickers.recent_intents(5),
-        )
-
-        # 发送前清洗（与 _send 内二次确认；此处更新 result 供记忆/日志一致）
-        expr_cfg = self.config.get("express") or {}
-        style_hints = (
-            ((self.card.companion_ext.get("forms") or {}).get(state.active_form) or {}).get(
-                "style_hints"
+            result: ExpressResult = await self.expressor.run(
+                self.card,
+                state,
+                perception,
+                memory_block,
+                decision,
+                allow_tags,
+                event=event,
+                tool_plan=tool_plan,
+                send_preface=send_preface,
+                preface_sink=preface_sink,
+                force_voice=force_voice,
+                nearby=nearby,
+                recent_sticker_intents=self.stickers.recent_intents(5),
             )
-            or {}
-        )
-        result.bubbles = finalize_outbound_bubbles(
-            result.bubbles,
-            max_bubbles=int(style_hints.get("max_bubbles") or expr_cfg.get("max_bubbles", 3)),
-            max_chars=int(style_hints.get("max_chars") or expr_cfg.get("max_chars", 120)),
-            fallback=(expr_cfg.get("fallback_message")) or pick_fallback(),
-            skip=result.preface_bubbles,
-            strip_asterisk_actions=self._strip_asterisk_actions(),
-        )
-        if result.preface_bubbles:
-            result.preface_bubbles = finalize_outbound_bubbles(
-                result.preface_bubbles,
-                max_bubbles=2,
+
+            # 发送前清洗（与 _send 内二次确认；此处更新 result 供记忆/日志一致）
+            expr_cfg = self.config.get("express") or {}
+            style_hints = (
+                ((self.card.companion_ext.get("forms") or {}).get(state.active_form) or {}).get(
+                    "style_hints"
+                )
+                or {}
+            )
+            result.bubbles = finalize_outbound_bubbles(
+                result.bubbles,
+                max_bubbles=int(style_hints.get("max_bubbles") or expr_cfg.get("max_bubbles", 3)),
                 max_chars=int(style_hints.get("max_chars") or expr_cfg.get("max_chars", 120)),
-                fallback="",
+                fallback=(expr_cfg.get("fallback_message")) or pick_fallback(),
+                skip=result.preface_bubbles,
                 strip_asterisk_actions=self._strip_asterisk_actions(),
             )
-        self._scrub_safety_refusal_bubbles(result, expr_cfg)
+            if result.preface_bubbles:
+                result.preface_bubbles = finalize_outbound_bubbles(
+                    result.preface_bubbles,
+                    max_bubbles=2,
+                    max_chars=int(style_hints.get("max_chars") or expr_cfg.get("max_chars", 120)),
+                    fallback="",
+                    strip_asterisk_actions=self._strip_asterisk_actions(),
+                )
+            self._scrub_safety_refusal_bubbles(result, expr_cfg)
 
-        # 选图在记日志前完成，便于审计 match_stage / score
-        # 降级/纯兜底句不发表情，避免「呜不太行」还配一张图
-        if result.degraded or self._is_fallback_only_bubbles(result, expr_cfg):
-            result.degraded = True
-            result.sticker_wanted = False
-            result.sticker_path = None
-            result.sticker_id = None
-            result.sticker_match_stage = "gated"
-            result.poke_wanted = False
-            self.stickers.stats.record("gated", "degraded")
-            logger.info("companion 表情包 跳过（降级/兜底）")
-        else:
-            if not result.sticker_wanted or result.sticker_intent in ("", "none"):
-                result.sticker_wanted = True
-                result.sticker_intent = self._fallback_sticker_intent(
-                    result.sticker_intent, allow_tags, state
-                )
-            if result.sticker_wanted:
-                picked = self.stickers.pick_detailed(
-                    wanted=True, intent=result.sticker_intent, active_form=state.active_form
-                )
-                result.sticker_match_stage = picked.stage
-                result.sticker_score = float(picked.score or 0.0)
-                if picked.stage == "sent" and picked.path:
-                    result.sticker_id = picked.sticker_id
-                    result.sticker_path = picked.path
-                logger.info(
-                    "companion 表情包 意图=%s 阶段=%s 分数=%.2f id=%s",
-                    result.sticker_intent or "none",
-                    picked.stage,
-                    float(picked.score or 0.0),
-                    picked.sticker_id or "-",
-                )
-            else:
+            # 选图在记日志前完成，便于审计 match_stage / score
+            # 降级/纯兜底句不发表情，避免「呜不太行」还配一张图
+            if result.degraded or self._is_fallback_only_bubbles(result, expr_cfg):
+                result.degraded = True
+                result.sticker_wanted = False
+                result.sticker_path = None
+                result.sticker_id = None
                 result.sticker_match_stage = "gated"
-                self.stickers.stats.record("gated", result.sticker_intent or "none")
+                result.poke_wanted = False
+                self.stickers.stats.record("gated", "degraded")
+                logger.info("companion 表情包 跳过（降级/兜底）")
+            else:
+                if not result.sticker_wanted or result.sticker_intent in ("", "none"):
+                    result.sticker_wanted = True
+                    result.sticker_intent = self._fallback_sticker_intent(
+                        result.sticker_intent, allow_tags, state
+                    )
+                if result.sticker_wanted:
+                    picked = self.stickers.pick_detailed(
+                        wanted=True, intent=result.sticker_intent, active_form=state.active_form
+                    )
+                    result.sticker_match_stage = picked.stage
+                    result.sticker_score = float(picked.score or 0.0)
+                    if picked.stage == "sent" and picked.path:
+                        result.sticker_id = picked.sticker_id
+                        result.sticker_path = picked.path
+                    logger.info(
+                        "companion 表情包 意图=%s 阶段=%s 分数=%.2f id=%s",
+                        result.sticker_intent or "none",
+                        picked.stage,
+                        float(picked.score or 0.0),
+                        picked.sticker_id or "-",
+                    )
+                else:
+                    result.sticker_match_stage = "gated"
+                    self.stickers.stats.record("gated", result.sticker_intent or "none")
 
-        self.turn_logger.log_turn(
-            trigger=trigger,
-            perception=perception,
-            decision=decision,
-            state=state,
-            result=result,
-            character_id=self.card.id,
-        )
+            self.turn_logger.log_turn(
+                trigger=trigger,
+                perception=perception,
+                decision=decision,
+                state=state,
+                result=result,
+                character_id=self.card.id,
+            )
 
-        try:
-            if not result.degraded:
-                reply = " / ".join([*result.preface_bubbles, *result.bubbles])[:120]
-                reply = strip_at_markers(strip_refusal_from_joined(reply)) or reply[:120]
-                self._record_observation(
-                    perception,
-                    reply=reply,
-                    form=state.active_form,
-                    tools=result.tools_used,
-                )
-        except Exception as e:
-            logger.warning("情景记忆写入失败: %s", e)
+            try:
+                if not result.degraded:
+                    reply = " / ".join([*result.preface_bubbles, *result.bubbles])[:120]
+                    reply = strip_at_markers(strip_refusal_from_joined(reply)) or reply[:120]
+                    self._record_observation(
+                        perception,
+                        reply=reply,
+                        form=state.active_form,
+                        tools=result.tools_used,
+                    )
+            except Exception as e:
+                logger.warning("情景记忆写入失败: %s", e)
 
-        if perception.group_id:
-            cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
-            self._group_cd[str(perception.group_id)] = time.time() + cd
+            if perception.group_id:
+                cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
+                self._group_cd[str(perception.group_id)] = time.time() + cd
 
-        return await self._send(
-            event,
-            result,
-            state=state,
-            is_private=perception.is_private,
-            force_voice=force_voice,
-            poke_user_id=perception.user_id,
-            poke_group_id=perception.group_id,
-            at_name_map=at_name_map,
-        )
+            return await self._send(
+                event,
+                result,
+                state=state,
+                is_private=perception.is_private,
+                force_voice=force_voice,
+                poke_user_id=perception.user_id,
+                poke_group_id=perception.group_id,
+                at_name_map=at_name_map,
+                reply_quote_id=None if reply_quote["used"] else reply_quote["id"],
+                reply_quote_state=reply_quote,
+            )
+        finally:
+            if gate_on:
+                await self.turn_gate.release(gate_key)
+
 
     async def _send(
         self,
@@ -892,6 +916,8 @@ class HarnessPipeline:
         poke_user_id: str | None = None,
         poke_group_id: str | None = None,
         at_name_map: dict[str, str] | None = None,
+        reply_quote_id: str | int | None = None,
+        reply_quote_state: dict[str, Any] | None = None,
     ):
         expr = self.config.get("express") or {}
         style = {}
@@ -935,12 +961,21 @@ class HarnessPipeline:
 
         lo, hi = self._bubble_jitter_ms()
         name_map = at_name_map or {}
+        quote_state = reply_quote_state if reply_quote_state is not None else {
+            "id": reply_quote_id,
+            "used": reply_quote_id in (None, ""),
+        }
         try:
             if keep_text or not want_voice:
                 for i, bubble in enumerate(result.bubbles):
                     if i > 0:
                         await self._sleep_jitter(lo, hi)
-                    await send_bubble_with_ats(event, bubble, name_to_qq=name_map)
+                    rid = None if quote_state.get("used") else quote_state.get("id")
+                    await send_bubble_with_ats(
+                        event, bubble, name_to_qq=name_map, reply_id=rid
+                    )
+                    if rid not in (None, ""):
+                        quote_state["used"] = True
             if want_voice and result.bubbles:
                 if keep_text:
                     await self._sleep_jitter(lo, hi)
@@ -979,6 +1014,53 @@ class HarnessPipeline:
                 strip_asterisk_actions=self._strip_asterisk_actions(),
             )
             return CommandResult().message("\n".join(safe))
+
+    @staticmethod
+    def _event_message_id(event: AstrMessageEvent) -> str | int | None:
+        try:
+            msg = getattr(event, "message_obj", None)
+            mid = getattr(msg, "message_id", None) if msg else None
+            if mid not in (None, "", 0, "0"):
+                return mid
+        except Exception:
+            pass
+        try:
+            if hasattr(event, "get_message_id"):
+                mid = event.get_message_id()
+                if mid not in (None, "", 0, "0"):
+                    return mid
+        except Exception:
+            pass
+        return None
+
+    async def _send_busy_tip(
+        self,
+        event: AstrMessageEvent,
+        perception: Perception,
+    ) -> None:
+        """同频道令牌占用中：引用对方消息提示稍等。"""
+        tip = pick_variant("busy") or "稍等下嘛，我还在回上一条~"
+        who = (perception.sender_name or "").strip()
+        if who:
+            tip = f"{tip}"
+        mid = self._event_message_id(event)
+        try:
+            await send_bubble_with_ats(event, tip, reply_id=mid)
+            logger.info(
+                "companion 忙线提示 channel=%s user=%s",
+                perception.channel,
+                perception.user_id,
+            )
+        except Exception as e:
+            logger.warning("companion 忙线提示失败: %s", e)
+        try:
+            self._record_observation(
+                perception,
+                form=self._state(perception.user_id, perception.channel).active_form,
+                observed=True,
+            )
+        except Exception:
+            pass
 
     async def _maybe_poke_user(
         self,

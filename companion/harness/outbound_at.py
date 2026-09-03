@@ -122,11 +122,18 @@ def build_at_text_chain(
     *,
     leading_qq: str | int | None = None,
     name_to_qq: dict[str, str] | None = None,
+    reply_id: str | int | None = None,
     At: Any,
     Plain: Any,
+    Reply: Any | None = None,
 ) -> list[Any]:
     """拼 MessageChain 组件列表。"""
     chain: list[Any] = []
+    if reply_id not in (None, "") and Reply is not None:
+        try:
+            chain.append(Reply(id=int(reply_id)))
+        except Exception:
+            chain.append(Reply(id=str(reply_id)))
     if leading_qq not in (None, ""):
         append_at(chain, leading_qq, At=At, Plain=Plain)
 
@@ -168,16 +175,18 @@ async def send_bubble_with_ats(
     text: str,
     *,
     name_to_qq: dict[str, str] | None = None,
+    reply_id: str | int | None = None,
 ) -> None:
-    """发送一条气泡；能解析到 QQ 时走真 At MessageChain。"""
+    """发送一条气泡；可选引用原消息；能解析到 QQ 时走真 At。"""
     from astrbot.api.all import CommandResult
 
-    if not has_resolvable_at(text, name_to_qq=name_to_qq):
+    need_chain = bool(reply_id) or has_resolvable_at(text, name_to_qq=name_to_qq)
+    if not need_chain:
         await event.send(CommandResult().message(text))
         return
 
     try:
-        from astrbot.api.message_components import At, Plain
+        from astrbot.api.message_components import At, Plain, Reply
         from astrbot.core.message.message_event_result import MessageChain
     except ImportError:
         await event.send(
@@ -185,7 +194,14 @@ async def send_bubble_with_ats(
         )
         return
 
-    chain = build_at_text_chain(text, name_to_qq=name_to_qq, At=At, Plain=Plain)
+    chain = build_at_text_chain(
+        text,
+        name_to_qq=name_to_qq,
+        reply_id=reply_id,
+        At=At,
+        Plain=Plain,
+        Reply=Reply,
+    )
     if not chain:
         await event.send(
             CommandResult().message(strip_at_markers(text, name_to_qq=name_to_qq) or "……")
@@ -194,4 +210,7 @@ async def send_bubble_with_ats(
 
     await event.send(MessageChain(chain))
     qqs = [v for k, v in split_at_segments(text, name_to_qq=name_to_qq) if k == "at"]
-    logger.info("companion 出站@ qq=%s", ",".join(qqs))
+    if qqs:
+        logger.info("companion 出站@ qq=%s", ",".join(qqs))
+    if reply_id not in (None, ""):
+        logger.info("companion 出站引用 message_id=%s", reply_id)

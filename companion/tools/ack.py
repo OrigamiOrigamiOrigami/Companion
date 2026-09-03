@@ -32,6 +32,9 @@ _FAIL_MARKERS = (
     "图片发送失败",
     "发送失败",
     "下载失败",
+    "上传失败",
+    "上传群文件失败",
+    "创建PDF失败",
     "连接失败",
     "访问被拒绝",
     "超过上限",
@@ -48,15 +51,20 @@ _FAIL_MARKERS = (
     "可能被风控",
 )
 
-# 仅「下载任务已启动」不代表预览/文件已到聊天
+# 仅「内容已出现在聊天」才算 delivered；「正在上传/任务已启动」不算
 _JM_DELIVERED_MARKERS = (
     "预览已发",
-    "已发送",
     "请查收",
-    "已有缓存，正在上传",
     "搜索结果发给你",
-    "搜索结果",
-    "已查询漫画",
+    "已查询漫画",  # 预览卡/详情已 event.send
+)
+# 明确未送达（优先于上面的模糊命中）
+_JM_NOT_DELIVERED_MARKERS = (
+    "正在上传",
+    "开始上传",
+    "下载任务已启动",
+    "后台下载",
+    "跳过预览直接上传",
 )
 
 _SETU_DELIVERED_MARKERS = (
@@ -162,9 +170,13 @@ def _infer_delivered(tool: str, raw: str, *, ok: bool, plugin_sent: bool) -> boo
         return _has_any_marker(text, _SETU_DELIVERED_MARKERS)
 
     if tool == "jmcomic_download":
+        if _has_any_marker(text, _JM_NOT_DELIVERED_MARKERS):
+            return False
         return _has_any_marker(text, _JM_DELIVERED_MARKERS)
 
     if tool.startswith("jmcomic_"):
+        if _has_any_marker(text, _JM_NOT_DELIVERED_MARKERS):
+            return False
         return _has_any_marker(text, _JM_DELIVERED_MARKERS)
 
     if tool.startswith("image_search_"):
@@ -201,24 +213,18 @@ def _summarize(tool: str, raw: str, *, ok: bool, delivered: bool) -> str:
         if tool.startswith("setu_"):
             return "图已发到聊天"
         if tool == "jmcomic_download":
-            if "已有缓存，正在上传" in raw:
-                return "本地已有缓存，PDF 正在上传"
-            if "已查询漫画" in raw:
-                return "预览/详情已发到聊天，PDF 后台下载中"
-            return "预览或文件已发到聊天"
+            return "文件已发到聊天"
         if tool.startswith("image_search_"):
             return "识图结果已发到聊天"
         if tool == "play_song_by_name":
             return "歌曲已开始播放"
-    # ok 但未确认送达
+    # ok 但未确认送达（兜底；companion 对 download 已 wait 到终态）
     if tool == "setu_send_image":
-        return "已尝试发图，但未确认图出现在聊天；勿断言已发出"
+        return "发图未确认送达"
     if tool == "jmcomic_download":
-        if "下载任务已启动" in raw or "后台" in raw:
-            return "下载任务已开始，预览/文件未必已到聊天；勿断言已发出"
-        return "命令已执行，预览/文件未必已到聊天；勿断言已发出"
+        return raw[:200] if raw else "下载/上传未确认送达"
     if tool.startswith("jmcomic_"):
-        return "搜索/下载命令已执行，结果未必已到聊天"
+        return "搜索/查询已执行"
     if raw:
         return raw[:200]
     return f"{tool} 已完成"

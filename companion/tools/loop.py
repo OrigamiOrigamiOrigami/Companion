@@ -56,6 +56,7 @@ class ToolLoopRunner:
         on_preface: Callable[[str], Awaitable[None]] | None = None,
         tool_plan: Any | None = None,
     ) -> tuple[str, list[str], list[dict[str, Any]]]:
+        """链路：① 选工具（可同轮发「正在…」前置）→ ② 等真实 ACK → ③ 收尾口语。"""
         tools = self.bridge.openai_tools(card=card)
         reason = getattr(tool_plan, "reason", None) if tool_plan else None
         allow = _INTENT_TOOL_ALLOW.get(str(reason or ""))
@@ -95,6 +96,7 @@ class ToolLoopRunner:
                     return content, used, trace
                 raise RuntimeError("empty response after tool loop")
 
+            # ① 前置：同轮短句只表示「已开始」，立刻发出；结果话留给 ③
             preface = _extract_message_text(message)
             if preface and on_preface:
                 round_entry["preface_sent"] = preface
@@ -175,11 +177,9 @@ class ToolLoopRunner:
                     {
                         "role": "system",
                         "content": (
-                            "本回合管理类工具已执行完毕。请根据 ACK 用人设口语收尾；"
-                            "勿再调用任何工具。ok=false 如实说明原因。"
-                            "必须以 ACK 的实际结果为准：delivered=true 才算真的发出去；"
-                            "若 ACK 写「跳过/未再发送」，说明只成功过更早那一次，"
-                            "即使用户说「十下」也禁止夸大成多次。"
+                            "工具已返回 ACK（第二步完成）。请只根据 ACK 做人设收尾（第三步）；"
+                            "勿再调工具。若前面已说过「正在…」，这里只报结果，勿重复开工句。"
+                            "ok=false 如实说明；ACK 写跳过/未再发送则不要夸大次数。"
                             "必须输出一句可见口语；不要只写 emotion/sticker/poke 控制行。"
                         ),
                     }
@@ -192,12 +192,9 @@ class ToolLoopRunner:
                     {
                         "role": "system",
                         "content": (
-                            "工具已执行完毕。请根据 ACK 收尾："
-                            "发图/下载/点歌/@：delivered=true 才可确认已到聊天；"
-                            "delivered=false 勿说「发给你了/已经@了」除非 summary 另有说明。"
-                            "ACK 写跳过/未再发送 → 不要说又做了一次。"
-                            "提醒/取消提醒：ok=true 即已办妥，口语确认即可，勿因 delivered=false 犹豫。"
-                            "ok=false 用人设简短道歉。勿重复调工具。"
+                            "工具已返回 ACK。请只根据 ACK 做人设收尾；勿再调工具。"
+                            "若前面已说过「正在…」，这里只报结果，勿重复开工句。"
+                            "ok=false 简短说明失败；ACK 写跳过/未再发送则不要说又做成了一次。"
                             "必须输出一句可见口语；不要只写 emotion/sticker/poke 控制行。"
                         ),
                     }

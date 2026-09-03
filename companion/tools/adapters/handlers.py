@@ -102,7 +102,8 @@ async def jmcomic_download(event: AstrMessageEvent, context: Any, comic_id: str)
             text=TOOL_JM_NEED_ID,
             effective={"comic_id": "", "llm_comic_id": llm_comic_id},
         )
-    result = await plugin.download_comic(comic_id, event)
+    # wait=True：等 PDF 上传成败落地再 ACK，再让人设收尾（勿靠 skill 教「别说发了」）
+    result = await plugin.download_comic(comic_id, event, wait=True)
     out = command_result_text(
         result,
         ok=TOOL_JM_PREVIEW_OK.format(comic_id=comic_id),

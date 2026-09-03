@@ -121,4 +121,4 @@ def pick_greeting() -> str:
 
 
 # —— 给模型的节奏示例 ——
-PREFACE_EXAMPLES = "「等一下嘛~」「我去找找！」"
+PREFACE_EXAMPLES = "「好，正在下载」「等一下嘛~」「我去找找！」"
