@@ -26,3 +26,5 @@ Single-context: `CONTEXT.md` + `docs/adr/` at this root (created lazily by `/gri
 Notes:
 - Group wake: hard @ / soft_mention / private. `keep_going` is intentionally **no-op** for now.
 - Busy channels: FIFO queue (not drop). Private: debounce + epoch cancel.
+- Reserved (panel may show; no runtime effect): `silence_prior`, `familiarity_threshold`, `llm_assist`, `intent_boost`, `form_rate_multiplier`.
+- Sticker empty buckets fall back via `INTENT_FALLBACKS`; check `/伴侣 状态` or `表情统计` for gaps.

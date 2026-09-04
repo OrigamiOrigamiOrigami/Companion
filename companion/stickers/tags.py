@@ -6,10 +6,12 @@ from __future__ import annotations
 TAG_GLOSSARY: dict[str, str] = {
     "tease": "调戏、调侃",
     "playful": "调皮、起哄",
+    "mock": "嘲笑、嘲讽",
     "shy": "害羞",
     "warm": "温柔、关心",
     "quiet": "沉默、淡",
     "speechless": "无语",
+    "surprise": "惊讶、吃惊",
     "happy": "开心",
     "sad": "难过",
     "angry": "生气、恼火",
@@ -25,16 +27,27 @@ TAG_GLOSSARY: dict[str, str] = {
 
 DEFAULT_TAGS: list[str] = list(TAG_GLOSSARY.keys())
 
-# 资源库缺某 tag 时的近义回退（按优先级）
+# 资源库缺某 tag 时的近义回退（按优先级；空桶也要能落到有图的 tag）
 INTENT_FALLBACKS: dict[str, tuple[str, ...]] = {
     "happy": ("warm", "playful", "like", "approve", "cute"),
-    "shy": ("warm", "cute", "quiet"),
+    "shy": ("warm", "quiet", "playful", "cute"),
     "thinking": ("question", "quiet", "speechless"),
-    "question": ("thinking", "speechless", "playful"),
-    "cute": ("playful", "warm", "like"),
+    "question": ("thinking", "speechless", "surprise", "playful"),
+    "cute": ("playful", "warm", "like", "happy"),
     "like": ("warm", "happy", "cute", "approve"),
     "sleep": ("tired", "quiet", "warm"),
     "reject": ("angry", "speechless", "quiet"),
+    "tired": ("sleep", "quiet", "sad"),
+    "sad": ("quiet", "warm", "tired"),
+    "angry": ("reject", "speechless", "mock", "quiet"),
+    "speechless": ("quiet", "surprise", "question", "angry"),
+    "tease": ("playful", "mock", "happy", "like"),
+    "playful": ("tease", "mock", "happy", "cute"),
+    "mock": ("tease", "playful", "speechless", "angry"),
+    "surprise": ("speechless", "question", "happy", "shy"),
+    "quiet": ("speechless", "warm", "sad"),
+    "warm": ("like", "happy", "shy"),
+    "approve": ("like", "happy", "warm"),
 }
 
 # 中文 / 别名 -> 规范英文 tag（上传指令、人工输入）
@@ -47,6 +60,11 @@ TAG_ALIASES: dict[str, str] = {
     "调皮": "playful",
     "起哄": "playful",
     "玩闹": "playful",
+    "mock": "mock",
+    "嘲笑": "mock",
+    "嘲讽": "mock",
+    "讥笑": "mock",
+    "嘲": "mock",
     "shy": "shy",
     "害羞": "shy",
     "羞": "shy",
@@ -62,6 +80,10 @@ TAG_ALIASES: dict[str, str] = {
     "无语": "speechless",
     "无言": "speechless",
     "无话可说": "speechless",
+    "surprise": "surprise",
+    "惊讶": "surprise",
+    "吃惊": "surprise",
+    "震惊": "surprise",
     "happy": "happy",
     "开心": "happy",
     "高兴": "happy",

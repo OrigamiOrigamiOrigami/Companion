@@ -40,6 +40,7 @@ STICKERS_CATALOG_EMPTY = "还没有表情包素材呢~ 上传几张再来吧。"
 STICKERS_CATALOG_OK = "图鉴好啦~ 共 {n} 张 · {tags} 个分类 · {w}×{h}px"
 STICKERS_CATALOG_CACHED = "图鉴（缓存）~ 共 {n} 张 · {tags} 个分类 · {w}×{h}px"
 STICKERS_UPLOAD_OK = "收好啦~ {id}（来自{source}），现在一共 {n} 张。"
+STICKERS_UPLOAD_OK_MULTI = "收好啦~ {count} 张：{ids}（来自{source}），现在一共 {n} 张。"
 STICKERS_UPLOAD_NO_PERM = "诶，这个只有管理员能传啦~"
 ADMIN_NO_PERM = "这个只有超管能弄啦~"
 ADMIN_NEED_TARGET = "要加/删谁呀？@一下，或跟个 QQ 号~"
@@ -56,8 +57,8 @@ def stickers_upload_usage() -> str:
     from .stickers.tags import TAG_GLOSSARY
 
     lines = [
-        "用法：上传 <情绪> + 图片（也可回复一张图，或跟上图片直链）",
-        "例：上传 疲惫 + 附图；上传疲惫https://…gif；上传 tired https://…png",
+        "用法：上传 <情绪> + 图片（可一次多张附图；也可回复带多图的消息，或跟上多条图片直链）",
+        "例：上传 疲惫 + 多图；上传疲惫https://…gif；上传 tired https://a.png https://b.png",
         "可用情绪（中文或英文）：",
     ]
     for tag, gloss in TAG_GLOSSARY.items():

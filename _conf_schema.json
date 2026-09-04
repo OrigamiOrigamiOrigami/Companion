@@ -100,8 +100,8 @@
     },
     "群聊沉默倾向": {
         "type": "string",
-        "description": "群里不说话的概率倾向",
-        "hint": "high=多数不回；mid=偶尔插话；low=更活跃",
+        "description": "【暂未生效】仅写入决策审计 reason，不改变是否开口",
+        "hint": "reserved：high/mid/low 仅作日志标签；实际唤起靠 @ / 唤醒词 / 私聊",
         "default": "mid"
     },
     "群聊回复冷却秒": {
@@ -133,8 +133,8 @@
     },
     "续聊触发": {
         "type": "bool",
-        "description": "私聊续聊触发（预留）",
-        "hint": "V1 默认关闭",
+        "description": "【暂未生效】群内无唤醒词续聊（keep_going）",
+        "hint": "reserved / no-op：打开也不会接话；唤起请用 @ 或唤醒词",
         "default": false
     },
     "私聊合并窗口毫秒": {
@@ -144,19 +144,19 @@
     },
     "自适应合并窗口": {
         "type": "bool",
-        "description": "根据连发速度自动调整合并窗口",
+        "description": "将合并窗口限制在约 1.5–3 秒（生效）",
         "default": true
     },
     "主动插话熟悉度门槛": {
         "type": "string",
-        "description": "主动插话需要的熟悉度",
-        "hint": "可选 stranger / warming / trusted / burden_shared",
+        "description": "【暂未生效】非 @ 主动开口的熟悉度门槛",
+        "hint": "reserved：续聊/冷场接通前不读此键",
         "default": "warming"
     },
     "决策层LLM辅助": {
         "type": "bool",
-        "description": "是否用大模型辅助「回不回」决策",
-        "hint": "V1 建议关闭，以规则为主",
+        "description": "【暂未生效】用大模型辅助「回不回」",
+        "hint": "reserved / no-op：决策仍为规则优先",
         "default": false
     },
     "模型全失败兜底句": {
@@ -326,6 +326,12 @@
         "type": "int",
         "description": "从得分最高的前 K 张里随机抽",
         "default": 5
+    },
+    "单次上传最多张数": {
+        "type": "int",
+        "description": "一次「上传」指令最多接收几张图（本条附图 / 回复多图 / 多直链）",
+        "hint": "默认 9；过大可能拖慢下载与落盘",
+        "default": 9
     },
     "扩展表情标签": {
         "type": "list",

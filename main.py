@@ -37,6 +37,7 @@ from .companion.canned import (
     STICKERS_CATALOG_CACHED,
     STICKERS_UPLOAD_NO_PERM,
     STICKERS_UPLOAD_OK,
+    STICKERS_UPLOAD_OK_MULTI,
     stickers_upload_usage,
 )
 from .companion.cmd_alias import HELP_TEXT, PLUGIN_PREFIX_RE, resolve_command_args
@@ -206,10 +207,10 @@ class CompanionPlugin(Star):
     async def cmd_sticker_upload(self, context, event: AstrMessageEvent):
         if not _is_admin(event, self.config):
             return CommandResult().message(STICKERS_UPLOAD_NO_PERM)
-        tag, url = _parse_upload_parts(event)
+        tag, urls = _parse_upload_parts(event)
         if not tag:
             return CommandResult().message(stickers_upload_usage())
-        return await self._do_sticker_upload(event, tag, image_url=url)
+        return await self._do_sticker_upload(event, tag, image_urls=urls)
 
     async def cmd_emotion_stats(self, context, event: AstrMessageEvent):
         text = _event_text(event)
@@ -235,29 +236,47 @@ class CompanionPlugin(Star):
         return self._cmd_admin(event, args[1:])
 
     async def _do_sticker_upload(
-        self, event: AstrMessageEvent, tag: str, *, image_url: str = ""
+        self, event: AstrMessageEvent, tag: str, *, image_urls: list[str] | None = None
     ):
         try:
             info = await self.pipeline.upload_sticker(
-                event, tag, image_url=image_url
+                event, tag, image_urls=image_urls or []
             )
         except ValueError as e:
             return CommandResult().message(str(e))
         except Exception as e:
             logger.warning("companion 表情包上传失败: %s", e)
             return CommandResult().message(f"上传失败了……{e}")
-        src = info.get("source") or "本条"
+        src = info.get("source") or "message"
         if src == "reply":
             source = "引用"
         elif src == "url":
             source = "链接"
+        elif src == "mixed":
+            source = "混合"
         else:
             source = "本条"
+        ids = list(info.get("sticker_ids") or [])
+        count = int(info.get("count") or len(ids) or 1)
+        n = info.get("total") or 0
+        if count <= 1:
+            return CommandResult().message(
+                STICKERS_UPLOAD_OK.format(
+                    id=(ids[0] if ids else info.get("sticker_id") or "?"),
+                    source=source,
+                    n=n,
+                )
+            )
+        show = ids[:5]
+        ids_bit = "、".join(show)
+        if len(ids) > 5:
+            ids_bit += f"…(+{len(ids) - 5})"
         return CommandResult().message(
-            STICKERS_UPLOAD_OK.format(
-                id=info.get("sticker_id") or "?",
+            STICKERS_UPLOAD_OK_MULTI.format(
+                count=count,
+                ids=ids_bit,
                 source=source,
-                n=info.get("total") or 0,
+                n=n,
             )
         )
 
@@ -301,10 +320,10 @@ class CompanionPlugin(Star):
                 if not _is_admin(event, self.config):
                     return CommandResult().message(STICKERS_UPLOAD_NO_PERM)
                 raw_tail = " ".join(args[2:]) if len(args) >= 3 else ""
-                tag, url = _split_tag_and_url(raw_tail)
+                tag, urls = _split_tag_and_url(raw_tail)
                 if not tag:
                     return CommandResult().message(stickers_upload_usage())
-                return await self._do_sticker_upload(event, tag, image_url=url)
+                return await self._do_sticker_upload(event, tag, image_urls=urls)
             return CommandResult().message(
                 "表情：重载 / 统计 / 图鉴 / 统计 清零 / 上传 <情绪>"
             )
@@ -423,36 +442,35 @@ def _event_text(event: AstrMessageEvent) -> str:
     return ""
 
 
-def _split_tag_and_url(text: str) -> tuple[str, str]:
-    """从「疲惫https://…」或「疲惫 https://…」拆出情绪与直链。"""
+def _split_tag_and_url(text: str) -> tuple[str, list[str]]:
+    """从「疲惫https://…」或「疲惫 https://a https://b」拆出情绪与直链列表。"""
     from .companion.tools.link_intent import extract_urls
 
     raw = (text or "").strip()
     if not raw:
-        return "", ""
-    urls = extract_urls(raw, limit=1)
-    url = urls[0] if urls else ""
+        return "", []
+    urls = extract_urls(raw, limit=32)
     leftover = raw
     for u in urls:
         leftover = leftover.replace(u, " ")
     tag = leftover.strip().split()[0] if leftover.strip() else ""
-    return tag, url
+    return tag, urls
 
 
-def _parse_upload_parts(event: AstrMessageEvent) -> tuple[str, str]:
-    """解析「上传 <情绪> [直链]」；支持情绪与链接粘连。"""
+def _parse_upload_parts(event: AstrMessageEvent) -> tuple[str, list[str]]:
+    """解析「上传 <情绪> [直链…]」；支持情绪与链接粘连。"""
     try:
         text = _event_text(event)
         m = re.match(r"(?i)^/?上传\s*(.*)$", text)
         if not m:
-            return "", ""
+            return "", []
         return _split_tag_and_url(m.group(1) or "")
     except Exception:
-        return "", ""
+        return "", []
 
 
 def _parse_upload_tag(event: AstrMessageEvent) -> str:
-    tag, _url = _parse_upload_parts(event)
+    tag, _urls = _parse_upload_parts(event)
     return tag
 
 

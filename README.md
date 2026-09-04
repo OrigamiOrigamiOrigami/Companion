@@ -3,7 +3,7 @@
 AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeath（爱弥斯）**。
 旧卡 `characters/daniya/` 暂留，定稿后可删。
 
-**当前版本：0.3.4**
+**当前版本：0.3.5**
 
 ## 文档
 
@@ -19,7 +19,9 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 | 块 | 说明 |
 |----|------|
 | `active_character` | 默认角色卡 ID（`Aemeath`） |
-| `group` | 群沉默、冷却、同文去重、speech_triggers |
+| `group` | 群沉默、冷却、同文去重、speech_triggers（`keep_going` **暂未生效**） |
+| `turn` | 私聊合并窗口（**已生效**） |
+| `decide` | `familiarity_threshold` / `llm_assist`（**暂未生效 / reserved**） |
 | `reminders` | 延时提醒（到点 @ + 可选戳一戳） |
 | `memory` | 情景记忆 / 群 tape / 画像注入 |
 | `stickers` | 表情包选图 |
@@ -60,7 +62,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 - `/伴侣 供应商` · `供应商 claude` · `供应商 minimax`（管理员；多供应商切换）
 - `/伴侣 语音 开|关`
 - `/伴侣 表情重载` · `表情统计` · `表情图鉴`（分类缩略图 PNG；也可直接发 `表情图鉴`）
-- `上传 疲惫` + 图 / 回复图 / 图片直链（支持 `上传疲惫https://…gif` 粘连写法）
+- `上传 疲惫` + 图（可一次多张）/ 回复多图 / 多条图片直链（支持 `上传疲惫https://…gif` 粘连写法；上限见 `upload_max_images`，默认 9）
 - `/伴侣 画像` · `画像 刷新`（查看限私聊）
 - `/伴侣 清除记忆`（也可直接发：清除记忆）
 - `添加管理员 @某人` · `@某人 添加管理员`；删除同理（仅超管；也可带 `/伴侣`）
@@ -77,7 +79,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 超管名单只能改面板；管理员名单命令改完会写回面板。
 
-## 能力摘要（0.3.4）
+## 能力摘要（0.3.5）
 
 ### 工具三步链
 
@@ -130,6 +132,15 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 - 支持强制语音念白（与点歌意图区分）
 
 ## 更新记录
+
+### 0.3.5
+
+- 配置对齐：面板标注 `keep_going` / `silence_prior` / `familiarity_threshold` / `llm_assist` / `intent_boost` / `form_rate_multiplier` 等为暂未生效
+- 增强：`/伴侣 状态` 展示生效旋钮与表情空桶；`表情统计` 显示库存与空桶
+- 增强：补全 sticker 近义回退（空桶 shy/cute/thinking/reject 等可落到有图 tag）
+- 新增：情绪 tag `mock`（嘲笑）、`surprise`（惊讶）
+- 新增：表情「上传」支持一次多图 / 多直链（`stickers.upload_max_images`）
+- 测试：golden_cases intent ⊆ 词表与角色卡 allow-list
 
 ### 0.3.4
 

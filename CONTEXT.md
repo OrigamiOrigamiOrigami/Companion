@@ -26,6 +26,17 @@ _Avoid_: 把「已经睡着」算进 tired；别名不再含「困」
 明确拒绝、不要、嫌弃、推开的贴纸桶。
 _Avoid_: 与 `angry`（恼火）或 `speechless`（无语）混用
 
+**mock**:
+嘲笑、嘲讽、讥笑的贴纸桶。
+_Avoid_: 与 `tease`（调戏/调侃）混用；戏弄亲近感用 tease，踩人感用 mock
+
+**surprise**:
+惊讶、吃惊、震惊的贴纸桶。
+_Avoid_: 与 `speechless`（无语）混用；愣住但偏「哇」用 surprise，偏「…」用 speechless
+
+**空桶**:
+角色 allow 中有、磁盘无素材的 sticker tag。运行时靠近义回退；应在「表情统计 / 状态」中可见。
+
 **lonely / guarded**:
 已退役的 sticker tag（原「寂寞」「防备」）。不再进入词表与角色卡 allow-list。
 

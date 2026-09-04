@@ -95,7 +95,13 @@ class StickerStats:
         rows.sort(key=lambda x: (-x[1], x[0]))
         return rows[: max(0, limit)]
 
-    def format_brief(self, *, top: int = 12) -> str:
+    def format_brief(
+        self,
+        *,
+        top: int = 12,
+        empty_tags: list[str] | None = None,
+        inventory: dict[str, int] | None = None,
+    ) -> str:
         t = self.totals
         sent_total = int(t.get("sent") or 0)
         lines = [
@@ -103,6 +109,17 @@ class StickerStats:
             f"合计：已发送={t['sent']} 否决={t['veto']} "
             f"无候选={t['no_candidate']} 未请求={t['gated']}",
         ]
+        if inventory:
+            nonempty = sum(1 for n in inventory.values() if n > 0)
+            lines.append(f"库存：{sum(inventory.values())} 张 · {nonempty}/{len(inventory)} 个分类有图")
+        if empty_tags:
+            labels = []
+            for tag in empty_tags:
+                gloss = TAG_GLOSSARY.get(tag, "")
+                zh = gloss.split("、")[0] if gloss else tag
+                labels.append(f"{zh}/{tag}")
+            lines.append("空桶（建议补图，运行时近义回退）：" + "、".join(labels))
+
         ranked = self.top_sent(limit=top)
         if ranked:
             lines.append("高频情绪（按已发送）：")

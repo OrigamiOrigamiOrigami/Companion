@@ -37,10 +37,12 @@ extensions:
     sticker_tags:
       - tease
       - playful
+      - mock
       - shy
       - warm
       - quiet
       - speechless
+      - surprise
       - happy
       - sad
       - angry

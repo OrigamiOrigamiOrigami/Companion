@@ -61,6 +61,21 @@ class StickerPicker:
         items = list(self._recent_intents)
         return items[-n:]
 
+    def inventory_by_tag(self) -> dict[str, int]:
+        """allow_tags → 库存张数（含 0）。"""
+        counts: dict[str, int] = {t: 0 for t in self.allow_tags}
+        for it in self.items:
+            tag = (it.primary_tag or "").strip().lower()
+            if tag in counts:
+                counts[tag] += 1
+            elif tag:
+                counts[tag] = counts.get(tag, 0) + 1
+        return counts
+
+    def empty_tags(self) -> list[str]:
+        """有 allow、库存为 0 的 tag（建议补图或依赖近义回退）。"""
+        return [t for t, n in self.inventory_by_tag().items() if n <= 0 and t in self.allow_tags]
+
     def reload(self) -> int:
         self.items = load_sticker_index(
             card_dir=self.card_dir,

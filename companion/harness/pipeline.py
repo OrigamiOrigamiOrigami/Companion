@@ -204,14 +204,43 @@ class HarnessPipeline:
             if voice_on
             else "语音：关"
         )
+        group_cfg = self.config.get("group") or {}
+        triggers = group_cfg.get("speech_triggers") or {}
+        turn_cfg = self.config.get("turn") or {}
+        conc = self.config.get("concurrency") or {}
+        from .private_debounce import PrivateDebouncer
+
+        debounce_ms = PrivateDebouncer.resolve_window_ms(turn_cfg)
+        empty = self.stickers.empty_tags()
+        empty_bit = "、".join(empty[:8]) if empty else "无"
+        if len(empty) > 8:
+            empty_bit += f"…(+{len(empty) - 8})"
         return (
             f"{STATUS_OK_HEADER}\n"
             f"角色：{self.card.display_name}（{self.card.id}）\n"
             f"供应商：{self.provider.readiness()}\n"
             f"工具：{n_tools} 个可用\n"
-            f"表情包：{n_stickers} 张\n"
+            f"表情包：{n_stickers} 张 · 空桶：{empty_bit}\n"
             f"{voice_line}\n"
-            "记忆：用户画像 + 频道对话 + 群旁听带"
+            "记忆：用户画像 + 频道对话 + 群旁听带\n"
+            "—— 生效旋钮 ——\n"
+            f"唤起：硬@={'开' if triggers.get('mentioned', True) else '关'} · "
+            f"软唤醒={'开' if triggers.get('soft_mention', True) else '关'} · "
+            f"续聊=关(no-op)\n"
+            f"私聊合并：{debounce_ms}ms"
+            f"{'（自适应夹紧）' if turn_cfg.get('adaptive_debounce', True) else ''}\n"
+            f"并发：同频道容量={conc.get('per_group', 1)} · "
+            f"队列上限={conc.get('queue_max_per_group', 3)} · "
+            f"超时={conc.get('queue_timeout_sec', 60)}s\n"
+            "—— 暂未生效（面板可改，行为不变）——\n"
+            "silence_prior / familiarity_threshold / llm_assist / keep_going / "
+            "intent_boost / form_rate_multiplier"
+        )
+
+    def sticker_stats(self) -> str:
+        return self.stickers.stats.format_brief(
+            empty_tags=self.stickers.empty_tags(),
+            inventory=self.stickers.inventory_by_tag(),
         )
 
     def provider_status_text(self) -> str:
@@ -329,9 +358,6 @@ class HarnessPipeline:
     def reload_stickers(self) -> int:
         return self.stickers.reload()
 
-    def sticker_stats(self) -> str:
-        return self.stickers.stats.format_brief()
-
     def reset_sticker_stats(self) -> str:
         self.stickers.stats.reset()
         return "表情情绪统计已清零~"
@@ -363,9 +389,10 @@ class HarnessPipeline:
         tag: str,
         *,
         form: str = "default",
+        image_urls: list[str] | None = None,
         image_url: str = "",
     ) -> dict[str, Any]:
-        """从本条附图、引用回复或直链取图，存入覆盖目录并 reload。"""
+        """从本条附图、引用回复或直链取图（可多张），存入覆盖目录并 reload。"""
         from ..harness.media import (
             extract_image_payloads,
             fetch_image_payload_from_url,
@@ -377,6 +404,10 @@ class HarnessPipeline:
 
         stickers_cfg = self.config.get("stickers") or {}
         max_bytes = sticker_max_file_bytes(stickers_cfg)
+        try:
+            max_images = max(1, min(32, int(stickers_cfg.get("upload_max_images") or 9)))
+        except (TypeError, ValueError):
+            max_images = 9
         allow = set(self.stickers.allow_tags)
         card_tags = list(self.card.companion_ext.get("sticker_tags") or [])
         if card_tags:
@@ -387,46 +418,86 @@ class HarnessPipeline:
 
         payloads = await extract_image_payloads(
             event,
-            max_images=1,
+            max_images=max_images,
             include_reply=True,
             max_bytes=max_bytes,
         )
         if not payloads:
-            url = (image_url or "").strip()
-            if not url:
+            urls: list[str] = []
+            for u in image_urls or []:
+                u2 = (u or "").strip()
+                if u2 and u2 not in urls:
+                    urls.append(u2)
+            one = (image_url or "").strip()
+            if one and one not in urls:
+                urls.insert(0, one)
+            if not urls:
                 try:
                     text = ""
                     if getattr(event, "message_str", None):
                         text = event.message_str
                     elif hasattr(event, "get_message_str"):
                         text = event.get_message_str() or ""
-                    urls = extract_urls(text, limit=1)
-                    url = urls[0] if urls else ""
+                    urls = extract_urls(text, limit=max_images)
                 except Exception:
-                    url = ""
-            if url:
-                payload = await fetch_image_payload_from_url(url, max_bytes=max_bytes)
+                    urls = []
+            for url in urls[:max_images]:
+                try:
+                    payload = await fetch_image_payload_from_url(url, max_bytes=max_bytes)
+                except ValueError as e:
+                    logger.warning("companion 表情批量直链跳过: %s", e)
+                    continue
                 if payload:
-                    payloads = [payload]
+                    payloads.append(payload)
                 else:
-                    raise ValueError(
-                        "链接下载失败了……请确认是图片直链，或改成附图/回复一张图。"
-                    )
+                    logger.warning("companion 表情批量直链下载失败 url=%s", url[:120])
         if not payloads:
             raise ValueError(
-                "没找到图片诶。请附图、回复一张带图的消息，或跟上图片直链。"
+                "没找到图片诶。请附图（可多张）、回复带图消息，或跟上图片直链。"
             )
 
-        info = save_sticker_file(
-            root_dir=self.sticker_upload_root(),
-            character_id=self.card.id,
-            tag=tag_n,
-            payload=payloads[0],
-            max_file_bytes=max_bytes,
-        )
-        info["total"] = self.reload_stickers()
-        info["source"] = payloads[0].source
-        return info
+        saved: list[dict[str, Any]] = []
+        last_err: Exception | None = None
+        for payload in payloads:
+            try:
+                info = save_sticker_file(
+                    root_dir=self.sticker_upload_root(),
+                    character_id=self.card.id,
+                    tag=tag_n,
+                    payload=payload,
+                    max_file_bytes=max_bytes,
+                )
+                info["source"] = payload.source
+                saved.append(info)
+            except Exception as e:
+                last_err = e
+                logger.warning("companion 表情包单张保存失败: %s", e)
+        if not saved:
+            if last_err:
+                raise last_err
+            raise ValueError("图片都没能存下来……")
+
+        total = self.reload_stickers()
+        sources = {str(s.get("source") or "") for s in saved}
+        if sources == {"message"}:
+            source = "message"
+        elif sources == {"reply"}:
+            source = "reply"
+        elif sources == {"url"}:
+            source = "url"
+        else:
+            source = "mixed"
+        ids = [str(s.get("sticker_id") or "?") for s in saved]
+        return {
+            "sticker_id": ids[0],
+            "sticker_ids": ids,
+            "count": len(saved),
+            "saved": saved,
+            "total": total,
+            "source": source,
+            "tag": tag_n,
+            "skipped": max(0, len(payloads) - len(saved)),
+        }
 
     def portrait_show(self, user_id: str) -> str:
         p = self.memory.load_portrait(user_id)

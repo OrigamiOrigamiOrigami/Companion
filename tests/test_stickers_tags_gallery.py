@@ -72,12 +72,16 @@ class TagResolutionTests(unittest.TestCase):
     def test_sleep_and_reject_keys(self) -> None:
         self.assertIn("sleep", TAG_GLOSSARY)
         self.assertIn("reject", TAG_GLOSSARY)
+        self.assertIn("mock", TAG_GLOSSARY)
+        self.assertIn("surprise", TAG_GLOSSARY)
         self.assertNotIn("lonely", TAG_GLOSSARY)
         self.assertNotIn("guarded", TAG_GLOSSARY)
 
     def test_order_neighbors(self) -> None:
         self.assertEqual(DEFAULT_TAGS[DEFAULT_TAGS.index("tired") + 1], "sleep")
         self.assertEqual(DEFAULT_TAGS[DEFAULT_TAGS.index("angry") + 1], "reject")
+        self.assertEqual(DEFAULT_TAGS[DEFAULT_TAGS.index("playful") + 1], "mock")
+        self.assertEqual(DEFAULT_TAGS[DEFAULT_TAGS.index("speechless") + 1], "surprise")
 
     def test_aliases(self) -> None:
         self.assertEqual(resolve_tag("困"), "sleep")
@@ -86,12 +90,18 @@ class TagResolutionTests(unittest.TestCase):
         self.assertEqual(resolve_tag("拒绝"), "reject")
         self.assertEqual(resolve_tag("嫌弃"), "reject")
         self.assertEqual(resolve_tag("疲惫"), "tired")
+        self.assertEqual(resolve_tag("嘲笑"), "mock")
+        self.assertEqual(resolve_tag("嘲讽"), "mock")
+        self.assertEqual(resolve_tag("惊讶"), "surprise")
+        self.assertEqual(resolve_tag("吃惊"), "surprise")
         self.assertIsNone(resolve_tag("寂寞"))
         self.assertIsNone(resolve_tag("防备"))
 
     def test_fallbacks(self) -> None:
         self.assertEqual(INTENT_FALLBACKS["sleep"][0], "tired")
         self.assertEqual(INTENT_FALLBACKS["reject"][0], "angry")
+        self.assertEqual(INTENT_FALLBACKS["mock"][0], "tease")
+        self.assertEqual(INTENT_FALLBACKS["surprise"][0], "speechless")
         self.assertNotIn("lonely", INTENT_FALLBACKS)
         self.assertNotIn("guarded", INTENT_FALLBACKS)
 

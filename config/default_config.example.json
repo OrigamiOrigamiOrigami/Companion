@@ -4,6 +4,7 @@
 
   "group": {
     "overrides": {},
+    "_silence_prior_comment": "【暂未生效】仅写入决策 reason，不改变是否开口",
     "silence_prior": "mid",
     "cooldown_sec": 6,
     "user_cooldown_sec": 8,
@@ -12,6 +13,7 @@
     "speech_triggers": {
       "mentioned": true,
       "soft_mention": true,
+      "_keep_going_comment": "【暂未生效 / no-op】打开也不会无唤醒词接话",
       "keep_going": false
     }
   },
@@ -22,6 +24,7 @@
   },
 
   "decide": {
+    "_comment": "familiarity_threshold / llm_assist 暂未接线（reserved）",
     "familiarity_threshold": "warming",
     "llm_assist": false
   },
@@ -122,7 +125,9 @@
     "top_k": 5,
     "allow_tags": [],
     "data_override_dir": "",
+    "upload_max_images": 9,
     "form_rate_multiplier": {
+      "_comment": "【暂未生效 / reserved】按 form 的发图倍率；intent_boost 同理未接线",
       "pink": 1.0,
       "black": 0.9
     }

@@ -31,8 +31,9 @@ data/stickers/Aemeath/
 
 例：`Aemeath_tease_01.gif`
 
-- `primary_tag` ∈ tease / playful / shy / warm / quiet / speechless / happy / sad / angry / reject / thinking / question / like / tired / sleep / cute / approve
+- `primary_tag` ∈ tease / playful / mock / shy / warm / quiet / speechless / surprise / happy / sad / angry / reject / thinking / question / like / tired / sleep / cute / approve
 - 已退役：`lonely`（寂寞）、`guarded`（防备）——请改名到近义 tag 后 `/伴侣 表情重载`
+- **建议补图（当前常为空桶）**：`shy`、`cute`、`thinking`、`reject`、`mock`、`surprise`（缺图时会近义回退到 tease/speechless 等）
 - `seq`：`01`–`99`
 - `ext`：webp / png / gif / jpg / jpeg
 

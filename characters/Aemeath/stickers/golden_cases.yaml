@@ -10,6 +10,14 @@ cases:
     summary: 起哄、开玩笑
     expect_intent: [playful, tease]
     allow_send: true
+  - id: mock_scoff
+    summary: 嘲笑、嘲讽
+    expect_intent: [mock, tease]
+    allow_send: true
+  - id: surprise_shock
+    summary: 惊讶、吃惊
+    expect_intent: [surprise, speechless]
+    allow_send: true
   - id: shy_soft
     summary: 害羞、不好意思
     expect_intent: [shy]
