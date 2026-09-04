@@ -44,7 +44,11 @@ from ..variants import pick_variant
 from .decide import decide
 from .express import Expressor
 from .form_resolver import FormResolver
-from .outbound_sanitize import finalize_outbound_bubbles, sanitize_outbound_text
+from .outbound_sanitize import (
+    finalize_outbound_bubbles,
+    resolve_style_limits,
+    sanitize_outbound_text,
+)
 from .outbound_at import send_bubble_with_ats, strip_at_markers
 from .perceive import perceive
 from .poke import parse_poke, pick_poke_reply, pick_poke_sticker_intent, send_poke_with_pause
@@ -947,10 +951,11 @@ class HarnessPipeline:
                 )
                 or {}
             )
+            max_bubbles, max_chars = resolve_style_limits(style_hints, expr_cfg)
             result.bubbles = finalize_outbound_bubbles(
                 result.bubbles,
-                max_bubbles=int(style_hints.get("max_bubbles") or expr_cfg.get("max_bubbles", 3)),
-                max_chars=int(style_hints.get("max_chars") or expr_cfg.get("max_chars", 120)),
+                max_bubbles=max_bubbles,
+                max_chars=max_chars,
                 fallback=(expr_cfg.get("fallback_message")) or pick_fallback(),
                 skip=result.preface_bubbles,
                 strip_asterisk_actions=self._strip_asterisk_actions(),
@@ -959,7 +964,7 @@ class HarnessPipeline:
                 result.preface_bubbles = finalize_outbound_bubbles(
                     result.preface_bubbles,
                     max_bubbles=2,
-                    max_chars=int(style_hints.get("max_chars") or expr_cfg.get("max_chars", 120)),
+                    max_chars=max_chars,
                     fallback="",
                     strip_asterisk_actions=self._strip_asterisk_actions(),
                 )
@@ -1072,8 +1077,7 @@ class HarnessPipeline:
                 )
                 or {}
             )
-        max_bubbles = int(style.get("max_bubbles") or expr.get("max_bubbles", 3))
-        max_chars = int(style.get("max_chars") or expr.get("max_chars", 120))
+        max_bubbles, max_chars = resolve_style_limits(style, expr)
         fallback = (expr.get("fallback_message")) or pick_fallback()
 
         result.bubbles = finalize_outbound_bubbles(

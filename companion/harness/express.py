@@ -21,6 +21,7 @@ from ..voice.emotion import extract_voice_emotion
 from ..voice.intent import extract_voice_speak_line
 from ..canned import pick_fallback
 from .media import extract_vision_images
+from .outbound_sanitize import resolve_style_limits
 from .types import Decision, ExpressResult, InnerState, Perception, ToolPlan
 
 logger = logging.getLogger("astrbot")
@@ -233,8 +234,7 @@ class Expressor:
         tone_hint = str(form_meta.get("label") or "")
         style = form_meta.get("style_hints") or {}
         expr = self.config.get("express") or {}
-        max_bubbles = int(style.get("max_bubbles") or expr.get("max_bubbles", 3))
-        max_chars = int(style.get("max_chars") or expr.get("max_chars", 120))
+        max_bubbles, max_chars = resolve_style_limits(style, expr)
         tag_gloss = glossary_for(allow_tags) if allow_tags else "none"
         recent = [x for x in (recent_sticker_intents or []) if x and x != "none"]
         recent_line = "、".join(recent[-5:]) if recent else "无"

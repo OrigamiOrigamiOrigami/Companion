@@ -73,6 +73,40 @@ def sanitize_outbound_text(text: str, *, strip_asterisk_actions: bool = False) -
 _PLACEHOLDER_BUBBLES = frozenset({"……", "...", "…", "。。。", "。。", "．", "."})
 
 
+def resolve_style_limits(
+    style: dict | None,
+    expr: dict | None,
+    *,
+    default_bubbles: int = 3,
+    default_chars: int = 280,
+) -> tuple[int, int]:
+    """面板 ``express.max_*`` 优先；角色卡 ``style_hints`` 仅作缺省。
+
+    ``multi_bubble: false`` 时强制只发 1 条气泡。
+    """
+    style = style or {}
+    expr = expr or {}
+
+    raw_b = expr.get("max_bubbles")
+    if raw_b is None or raw_b == "":
+        raw_b = style.get("max_bubbles", default_bubbles)
+    try:
+        max_bubbles = max(1, int(raw_b))
+    except (TypeError, ValueError):
+        max_bubbles = default_bubbles
+    if style.get("multi_bubble") is False:
+        max_bubbles = 1
+
+    raw_c = expr.get("max_chars")
+    if raw_c is None or raw_c == "":
+        raw_c = style.get("max_chars", default_chars)
+    try:
+        max_chars = max(20, int(raw_c))
+    except (TypeError, ValueError):
+        max_chars = default_chars
+    return max_bubbles, max_chars
+
+
 def finalize_outbound_bubbles(
     bubbles: list[str],
     *,
