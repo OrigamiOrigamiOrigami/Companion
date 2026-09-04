@@ -19,19 +19,19 @@ cases:
   - id: black_quiet
     form: black
     reply_summary: "*看着你，没说话*"
-    expect_intent_in: [quiet, guarded]
+    expect_intent_in: [quiet, speechless]
     allow_send: true
     forbid_tags: [tease, playful]
-  - id: black_guarded
+  - id: black_reject
     form: black
-    reply_summary: "……随便你。"
-    expect_intent_in: [guarded, quiet]
+    reply_summary: "……不要。"
+    expect_intent_in: [reject, quiet, speechless]
     allow_send: true
     forbid_tags: [tease]
-  - id: black_lonely
+  - id: black_sleep
     form: black
-    reply_summary: "……你去哪了。"
-    expect_intent_in: [lonely, quiet, sad]
+    reply_summary: "……我先睡了。"
+    expect_intent_in: [sleep, tired, quiet]
     allow_send: true
   - id: transactional_none
     form: pink
@@ -45,9 +45,9 @@ cases:
     expect_result: none
   - id: missing_tag_pool
     form: pink
-    reply_summary: "好想你陪着……"
-    force_intent: lonely
-    empty_tags: [lonely]
+    reply_summary: "晚安，我睡着了……"
+    force_intent: sleep
+    empty_tags: [sleep]
     expect_result: none
   - id: warm_care
     form: pink

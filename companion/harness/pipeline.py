@@ -49,6 +49,7 @@ from .outbound_at import send_bubble_with_ats, strip_at_markers
 from .perceive import perceive
 from .poke import parse_poke, pick_poke_reply, pick_poke_sticker_intent, send_poke_with_pause
 from .presence import is_night_hours, typing_delay_ms
+from .private_debounce import PrivateDebouncer
 from .rate_limit import TurnRateLimiter
 from .tool_plan import plan_tool_order
 from .turn_gate import TurnGate
@@ -91,6 +92,9 @@ class HarnessPipeline:
         self.member_cards = MemberCardStore(self.memory.root)
         self.rate_limiter = TurnRateLimiter()
         self.turn_gate = TurnGate()
+        self.private_debouncer = PrivateDebouncer()
+        self._turn_epoch: dict[str, int] = {}
+        self._busy_tip_at: dict[str, float] = {}
 
         stickers_cfg = config.get("stickers") or {}
         override = stickers_cfg.get("data_override_dir") or os.path.join(
@@ -575,6 +579,31 @@ class HarnessPipeline:
             if self._group_enabled.get(str(perception.group_id), True) is False:
                 return None
 
+        # 私聊：作废进行中的旧回复，并合并短窗连发
+        if perception.is_private:
+            self._bump_epoch(perception.channel)
+            turn_cfg = self.config.get("turn") or {}
+            window_ms = PrivateDebouncer.resolve_window_ms(turn_cfg)
+            coalesced = await self.private_debouncer.coalesce(
+                key=f"{perception.channel}:{perception.user_id}",
+                event=event,
+                text=perception.text or "",
+                window_ms=window_ms,
+            )
+            if coalesced is None:
+                return None
+            event, merged_text = coalesced
+            perception.text = merged_text
+            # 合并后用最新事件重感知媒体/@ 等（保留 trigger）
+            perception = perceive(
+                event,
+                trigger=trigger,
+                wake_words=self.wake_words(),
+                rest_keywords=(self.config.get("rest") or {}).get("keywords"),
+            )
+            if merged_text:
+                perception.text = merged_text
+
         key = self._key(perception.user_id, perception.channel)
         state = self.form_resolver.update(
             self._state(perception.user_id, perception.channel),
@@ -609,11 +638,37 @@ class HarnessPipeline:
         gate_key = str(perception.channel or f"user:{perception.user_id}")
         conc = self.config.get("concurrency") or {}
         global_max = int(conc.get("global_max") or 0)
-        # per_group>0 启用同频道容量 1；忙则提示，不排队
+        queue_max = int(conc.get("queue_max_per_group") if conc.get("queue_max_per_group") is not None else 3)
+        timeout_sec = float(conc.get("queue_timeout_sec") if conc.get("queue_timeout_sec") is not None else 60)
+        # per_group>0 启用同频道容量 1 + FIFO；SILENCE 不占闸门
         gate_on = int(conc.get("per_group") if conc.get("per_group") is not None else 1) > 0
-        if gate_on and not await self.turn_gate.try_acquire(gate_key, global_max=global_max):
-            await self._send_busy_tip(event, perception)
-            return None
+        if gate_on:
+            tip_event = event
+            tip_perception = perception
+
+            async def _on_enqueued() -> None:
+                await self._send_busy_tip(tip_event, tip_perception)
+
+            status = await self.turn_gate.acquire_fifo(
+                gate_key,
+                global_max=global_max,
+                queue_max=queue_max,
+                timeout_sec=timeout_sec,
+                on_enqueued=_on_enqueued,
+            )
+            if status != "ok":
+                logger.warning(
+                    "companion 回合未执行 status=%s channel=%s",
+                    status,
+                    gate_key,
+                )
+                return None
+
+        # 私聊：拿到令牌后再 claim epoch，避免排队期间被自己的「到达 bump」误伤
+        if perception.is_private:
+            my_epoch = self._bump_epoch(perception.channel)
+        else:
+            my_epoch = self._current_epoch(perception.channel)
 
         reply_quote = {"id": self._event_message_id(event), "used": False}
         try:
@@ -632,6 +687,9 @@ class HarnessPipeline:
                 if perception.group_id:
                     cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
                     self._group_cd[str(perception.group_id)] = time.time() + cd
+                if perception.is_private and not self._epoch_valid(perception.channel, my_epoch):
+                    logger.info("companion epoch 作废 night_afk channel=%s", perception.channel)
+                    return None
                 return await self._send(
                     event,
                     result,
@@ -754,6 +812,9 @@ class HarnessPipeline:
                     logger.warning("companion @名索引失败: %s", e)
 
             async def send_preface(bubble: str) -> None:
+                if perception.is_private and not self._epoch_valid(perception.channel, my_epoch):
+                    logger.info("companion epoch 作废 preface channel=%s", perception.channel)
+                    return
                 clean = sanitize_outbound_text(
                     bubble, strip_asterisk_actions=self._strip_asterisk_actions()
                 )
@@ -798,6 +859,14 @@ class HarnessPipeline:
                 nearby=nearby,
                 recent_sticker_intents=self.stickers.recent_intents(5),
             )
+
+            if perception.is_private and not self._epoch_valid(perception.channel, my_epoch):
+                logger.info(
+                    "companion epoch 作废 express channel=%s epoch=%s",
+                    perception.channel,
+                    my_epoch,
+                )
+                return None
 
             # 发送前清洗（与 _send 内二次确认；此处更新 result 供记忆/日志一致）
             expr_cfg = self.config.get("express") or {}
@@ -887,6 +956,10 @@ class HarnessPipeline:
             if perception.group_id:
                 cd = float((self.config.get("group") or {}).get("cooldown_sec") or 8)
                 self._group_cd[str(perception.group_id)] = time.time() + cd
+
+            if perception.is_private and not self._epoch_valid(perception.channel, my_epoch):
+                logger.info("companion epoch 作废 pre-send channel=%s", perception.channel)
+                return None
 
             return await self._send(
                 event,
@@ -1033,16 +1106,30 @@ class HarnessPipeline:
             pass
         return None
 
+    def _bump_epoch(self, channel: str) -> int:
+        key = str(channel or "default")
+        n = int(self._turn_epoch.get(key) or 0) + 1
+        self._turn_epoch[key] = n
+        return n
+
+    def _current_epoch(self, channel: str) -> int:
+        return int(self._turn_epoch.get(str(channel or "default")) or 0)
+
+    def _epoch_valid(self, channel: str, my_epoch: int) -> bool:
+        return self._current_epoch(channel) == int(my_epoch)
+
     async def _send_busy_tip(
         self,
         event: AstrMessageEvent,
         perception: Perception,
     ) -> None:
-        """同频道令牌占用中：引用对方消息提示稍等。"""
+        """同频道排队/占用中：引用对方消息提示稍等（短窗去重）。"""
+        tip_key = f"{perception.channel}:{perception.user_id}"
+        now = time.time()
+        if now - float(self._busy_tip_at.get(tip_key) or 0) < 10:
+            return
+        self._busy_tip_at[tip_key] = now
         tip = pick_variant("busy") or "稍等下嘛，我还在回上一条~"
-        who = (perception.sender_name or "").strip()
-        if who:
-            tip = f"{tip}"
         mid = self._event_message_id(event)
         try:
             await send_bubble_with_ats(event, tip, reply_id=mid)

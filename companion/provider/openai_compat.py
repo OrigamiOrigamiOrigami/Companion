@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 import ssl
 import urllib.error
@@ -102,16 +103,21 @@ def is_rate_limit_error(exc: BaseException) -> bool:
     return False
 
 
-def _retry_after_sec(exc: BaseException, *, default: float = 5.0) -> float:
+def _retry_after_sec(exc: BaseException, *, attempt: int = 1, default: float = 5.0) -> float:
+    """指数退避 + 抖动；若响应带 Retry-After 则以其为下限。"""
+    base = default
     http = exc if isinstance(exc, urllib.error.HTTPError) else getattr(exc, "__cause__", None)
     if isinstance(http, urllib.error.HTTPError):
         raw = http.headers.get("Retry-After") or http.headers.get("retry-after")
         if raw:
             try:
-                return max(float(raw), 1.0)
+                base = max(float(raw), 1.0)
             except ValueError:
                 pass
-    return default
+    # attempt 从 1 起：1s、2s、4s… 再加 0–40% jitter
+    exp = min(8.0, float(base) * (2 ** max(0, attempt - 1)))
+    jitter = exp * random.uniform(0.0, 0.4)
+    return max(0.5, exp + jitter)
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -185,7 +191,7 @@ async def chat_completions_raw(
                 attempt,
                 attempts,
             )
-            await asyncio.sleep(_retry_after_sec(wrapped))
+            await asyncio.sleep(_retry_after_sec(wrapped, attempt=attempt))
             continue
         except Exception as e:
             last_err = e
@@ -199,7 +205,7 @@ async def chat_completions_raw(
                 attempt,
                 attempts,
             )
-            await asyncio.sleep(_retry_after_sec(e))
+            await asyncio.sleep(_retry_after_sec(e, attempt=attempt))
             continue
 
     raise RuntimeError(str(last_err) if last_err else "llm failed")

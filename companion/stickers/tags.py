@@ -1,4 +1,4 @@
-"""V1 冻结 sticker_intent / primary_tag 词表（与 PRD §6.7.2-C 对齐）。"""
+"""V1 sticker_intent / primary_tag 词表（与 PRD §6.7.2-C 对齐；lonely/guarded 已退役）。"""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ TAG_GLOSSARY: dict[str, str] = {
     "playful": "调皮、起哄",
     "shy": "害羞",
     "warm": "温柔、关心",
-    "lonely": "寂寞、眼巴巴",
-    "guarded": "防备、疏离",
     "quiet": "沉默、淡",
     "speechless": "无语",
     "happy": "开心",
     "sad": "难过",
     "angry": "生气、恼火",
+    "reject": "拒绝、嫌弃",
     "thinking": "思考、琢磨",
     "question": "疑问、疑惑",
     "like": "喜欢、心动",
     "tired": "疲惫、累",
+    "sleep": "睡觉、睡着",
     "cute": "卖萌、装可爱",
     "approve": "认可、赞同",
 }
@@ -29,12 +29,12 @@ DEFAULT_TAGS: list[str] = list(TAG_GLOSSARY.keys())
 INTENT_FALLBACKS: dict[str, tuple[str, ...]] = {
     "happy": ("warm", "playful", "like", "approve", "cute"),
     "shy": ("warm", "cute", "quiet"),
-    "lonely": ("sad", "warm", "quiet"),
-    "guarded": ("quiet", "speechless", "angry"),
     "thinking": ("question", "quiet", "speechless"),
     "question": ("thinking", "speechless", "playful"),
     "cute": ("playful", "warm", "like"),
     "like": ("warm", "happy", "cute", "approve"),
+    "sleep": ("tired", "quiet", "warm"),
+    "reject": ("angry", "speechless", "quiet"),
 }
 
 # 中文 / 别名 -> 规范英文 tag（上传指令、人工输入）
@@ -54,14 +54,6 @@ TAG_ALIASES: dict[str, str] = {
     "温柔": "warm",
     "关心": "warm",
     "暖": "warm",
-    "lonely": "lonely",
-    "寂寞": "lonely",
-    "孤独": "lonely",
-    "眼巴巴": "lonely",
-    "guarded": "guarded",
-    "防备": "guarded",
-    "疏离": "guarded",
-    "戒备": "guarded",
     "quiet": "quiet",
     "沉默": "quiet",
     "淡": "quiet",
@@ -82,6 +74,12 @@ TAG_ALIASES: dict[str, str] = {
     "生气": "angry",
     "恼火": "angry",
     "气": "angry",
+    "reject": "reject",
+    "拒绝": "reject",
+    "不要": "reject",
+    "嫌弃": "reject",
+    "推开": "reject",
+    "滚开": "reject",
     "thinking": "thinking",
     "思考": "thinking",
     "琢磨": "thinking",
@@ -97,7 +95,13 @@ TAG_ALIASES: dict[str, str] = {
     "tired": "tired",
     "疲惫": "tired",
     "累": "tired",
-    "困": "tired",
+    "sleep": "sleep",
+    "睡觉": "sleep",
+    "睡着": "sleep",
+    "睡着了": "sleep",
+    "晚安": "sleep",
+    "入睡": "sleep",
+    "困": "sleep",
     "cute": "cute",
     "卖萌": "cute",
     "装可爱": "cute",

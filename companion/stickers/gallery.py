@@ -34,6 +34,10 @@ _MUTED = (110, 118, 132)
 _BORDER = (220, 224, 230)
 _MAX_W = 4096
 _MAX_H = 16000
+# 布局公式变更时递增，避免素材未变仍命中旧裁切缓存
+_CATALOG_LAYOUT_VERSION = 2
+# 与 build_sticker_catalog 绘制一致：header 后留 4px
+_SECTION_GAP = 4
 
 _FONT_CANDIDATES = (
     os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "msyh.ttc"),
@@ -99,7 +103,12 @@ def _layout_height(
     h = _PAD + _TITLE_H + _PAD
     for _tag, rows in groups:
         n_rows = (len(rows) + cols - 1) // cols
-        h += _HEADER_H + n_rows * (thumb_size + _CAPTION_H + _GAP) + _PAD
+        h += (
+            _HEADER_H
+            + _SECTION_GAP
+            + n_rows * (thumb_size + _CAPTION_H + _GAP)
+            + _PAD
+        )
     return h
 
 
@@ -132,8 +141,8 @@ def _live_items(items: list[StickerItem]) -> list[StickerItem]:
 
 
 def index_fingerprint(items: list[StickerItem]) -> str:
-    """索引指纹：id + 路径 + mtime + 大小；改名/增删/换图都会变。"""
-    parts: list[str] = []
+    """索引指纹：layout 版本 + id + mtime + 大小；改布局/改名/增删/换图都会变。"""
+    parts: list[str] = [f"layout:{_CATALOG_LAYOUT_VERSION}"]
     for it in sorted(items, key=lambda x: x.sticker_id):
         if not os.path.isfile(it.path):
             continue
@@ -277,6 +286,12 @@ def build_sticker_catalog(
 
     for tag, rows in groups:
         if y + _HEADER_H + thumb_size > canvas.height:
+            logger.warning(
+                "companion 图鉴跳过后续分段 tag=%s y=%s canvas_h=%s",
+                tag,
+                y,
+                canvas.height,
+            )
             break
         draw.rectangle(
             [_PAD, y, canvas_w - _PAD, y + _HEADER_H],
@@ -284,7 +299,7 @@ def build_sticker_catalog(
             outline=_BORDER,
         )
         draw.text((_PAD + 6, y + 5), _tag_label(tag), fill=_TEXT, font=font_head)
-        y += _HEADER_H + 4
+        y += _HEADER_H + _SECTION_GAP
 
         for i, it in enumerate(rows):
             col = i % cols
@@ -292,6 +307,13 @@ def build_sticker_catalog(
             x = _PAD + col * cell_w
             cy = y + row_i * (thumb_size + _CAPTION_H + _GAP)
             if cy + thumb_size + _CAPTION_H > canvas.height:
+                # 预算应对齐；仅在真顶满 _MAX_H 时作为保险丝
+                logger.warning(
+                    "companion 图鉴段内裁切 tag=%s i=%s canvas_h=%s",
+                    tag,
+                    i,
+                    canvas.height,
+                )
                 break
             try:
                 thumb = _load_thumb(it.path, thumb_size)

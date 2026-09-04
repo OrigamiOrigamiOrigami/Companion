@@ -85,6 +85,11 @@ class Expressor:
         fallback = ((self.config.get("express") or {}).get("fallback_message")) or pick_fallback()
         tools_used: list[str] = []
         llm_trace: list[dict[str, Any]] = []
+        if self.tool_loop is not None:
+            try:
+                self.tool_loop.provider.begin_turn()
+            except Exception:
+                pass
 
         async def _on_preface(text: str) -> None:
             for bubble in split_preface_bubbles(text):
@@ -106,12 +111,16 @@ class Expressor:
             )
             if not (raw or "").strip():
                 if tools_used or preface_sink:
+                    from ..tools.loop import ack_aware_outro
+
+                    line = ack_aware_outro(llm_trace)
                     result = ExpressResult(
-                        bubbles=[],
+                        bubbles=[line] if line else [],
+                        degraded=bool(line),
                         tools_used=tools_used,
                         llm_trace=llm_trace,
                         prompt_messages=messages,
-                        raw_response=raw or "",
+                        raw_response=raw or line or "",
                     )
                     if self.tool_loop is not None:
                         result.tool_invocations = self.tool_loop.bridge.drain_invocations()
@@ -136,15 +145,29 @@ class Expressor:
         except Exception as e:
             logger.warning("companion 表达降级: %s", e)
             partial = bool(tools_used or preface_sink)
-            result = ExpressResult(
-                bubbles=[] if partial else [fallback],
-                degraded=True,
-                tools_used=tools_used,
-                llm_trace=llm_trace,
-                prompt_messages=messages,
-                error=str(e),
-                preface_bubbles=list(preface_sink) if preface_sink else [],
-            )
+            if partial:
+                from ..tools.loop import ack_aware_outro
+
+                line = ack_aware_outro(llm_trace)
+                result = ExpressResult(
+                    bubbles=[line] if line else [],
+                    degraded=True,
+                    tools_used=tools_used,
+                    llm_trace=llm_trace,
+                    prompt_messages=messages,
+                    error=str(e),
+                    preface_bubbles=list(preface_sink) if preface_sink else [],
+                )
+            else:
+                result = ExpressResult(
+                    bubbles=[fallback],
+                    degraded=True,
+                    tools_used=tools_used,
+                    llm_trace=llm_trace,
+                    prompt_messages=messages,
+                    error=str(e),
+                    preface_bubbles=list(preface_sink) if preface_sink else [],
+                )
             if self.tool_loop is not None:
                 result.tool_invocations = self.tool_loop.bridge.drain_invocations()
             return result
@@ -219,7 +242,7 @@ class Expressor:
         if (state.active_form or "").lower() in ("default", "pink"):
             form_soft = "当前形态偏外向时更常 playful/tease/warm/shy；"
         elif (state.active_form or "").lower() == "black":
-            form_soft = "当前形态偏克制时更常 quiet/guarded/lonely；"
+            form_soft = "当前形态偏克制时更常 quiet/speechless/sad；"
         allow_asterisk = bool(card.companion_ext.get("allow_asterisk_actions", True))
         if allow_asterisk:
             action_rule = (

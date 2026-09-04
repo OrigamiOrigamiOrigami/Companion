@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -22,6 +23,21 @@ _TERMINAL_INTENT_TOOLS = frozenset(
         "mention_group_member",
     }
 )
+
+# 瞬时失败可短重试的媒体类工具
+_MEDIA_RETRY_TOOLS = frozenset(
+    {
+        "setu_send_image",
+        "jmcomic_download",
+        "jmcomic_search",
+        "image_search_saucenao",
+        "image_search_ascii2d",
+        "image_search_google",
+    }
+)
+
+# failover 后收窄：去掉重媒体，保留管理/轻工具
+_FAILOVER_DROP_PREFIXES = ("setu_", "jmcomic_", "image_search_")
 
 # tool_plan.reason → 本回合只暴露这些工具
 _INTENT_TOOL_ALLOW: dict[str, frozenset[str]] = {
@@ -57,6 +73,7 @@ class ToolLoopRunner:
         tool_plan: Any | None = None,
     ) -> tuple[str, list[str], list[dict[str, Any]]]:
         """链路：① 选工具（可同轮发「正在…」前置）→ ② 等真实 ACK → ③ 收尾口语。"""
+        self.provider.begin_turn()
         tools = self.bridge.openai_tools(card=card)
         reason = getattr(tool_plan, "reason", None) if tool_plan else None
         allow = _INTENT_TOOL_ALLOW.get(str(reason or ""))
@@ -68,6 +85,7 @@ class ToolLoopRunner:
 
         max_rounds = int(self.tools_cfg.get("max_rounds") or 3)
         parallel_max = max(1, int(self.tools_cfg.get("parallel_max") or 2))
+        shrink_on_failover = bool(self.tools_cfg.get("failover_shrink_tools", True))
 
         working = [dict(m) for m in messages]
         used: list[str] = []
@@ -76,6 +94,14 @@ class ToolLoopRunner:
 
         for round_idx in range(max_rounds):
             data, provider_role, model = await self._llm(working, tools=tools)
+            if shrink_on_failover and self.provider.consume_failover():
+                before = len(tools or [])
+                tools = _shrink_tools_after_failover(tools)
+                logger.info(
+                    "companion 供应商已回退，工具面收缩 %s→%s",
+                    before,
+                    len(tools or []),
+                )
             choice = (data.get("choices") or [{}])[0]
             message = choice.get("message") or {}
             tool_calls = message.get("tool_calls") or []
@@ -94,6 +120,11 @@ class ToolLoopRunner:
                 trace.append(round_entry)
                 if content:
                     return content, used, trace
+                if used:
+                    partial = ack_aware_outro(trace)
+                    round_entry["raw_response"] = partial
+                    round_entry["partial"] = True
+                    return partial, used, trace
                 raise RuntimeError("empty response after tool loop")
 
             # ① 前置：同轮短句只表示「已开始」，立刻发出；结果话留给 ③
@@ -111,10 +142,18 @@ class ToolLoopRunner:
                 if not name:
                     continue
                 raw_args = fn.get("arguments") or "{}"
+                args: dict[str, Any] | None
+                args_error = ""
                 try:
-                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-                except json.JSONDecodeError:
-                    args = {}
+                    parsed = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    if not isinstance(parsed, dict):
+                        args = None
+                        args_error = f"参数不是 JSON 对象（得到 {type(parsed).__name__}）"
+                    else:
+                        args = parsed
+                except json.JSONDecodeError as e:
+                    args = None
+                    args_error = f"参数 JSON 无法解析: {e}"
 
                 skipped_dup = name in SINGLE_SHOT_TOOLS and name in turn_tool_cache
                 over_parallel = (
@@ -122,7 +161,18 @@ class ToolLoopRunner:
                     and name not in SINGLE_SHOT_TOOLS
                     and real_runs >= parallel_max
                 )
-                if over_parallel:
+                if args is None:
+                    result = build_tool_ack(
+                        name,
+                        (
+                            f"{args_error}。请修正 arguments 为合法 JSON 对象后重试；"
+                            "本次未执行。"
+                        ),
+                        ok=False,
+                        delivered=False,
+                    )
+                    logger.info("companion 工具参数无效 名称=%s err=%s", name, args_error)
+                elif over_parallel:
                     result = build_tool_ack(
                         name,
                         f"未执行：本轮并行额度已满（最多 {parallel_max} 个），本次未发送。",
@@ -149,9 +199,11 @@ class ToolLoopRunner:
                     "raw_arguments": raw_args
                     if isinstance(raw_args, str)
                     else json.dumps(raw_args, ensure_ascii=False),
-                    "arguments": args,
+                    "arguments": args if args is not None else {},
                     "result": result,
                 }
+                if args_error:
+                    entry["args_error"] = args_error
                 ack = None
                 try:
                     ack = parse_tool_ack(result)
@@ -204,7 +256,7 @@ class ToolLoopRunner:
             data, provider_role, model = await self._llm(working, tools=None)
         except Exception as e:
             if used:
-                partial = _partial_outro(trace)
+                partial = ack_aware_outro(trace)
                 trace.append(
                     {
                         "mode": "tool_loop_partial",
@@ -233,7 +285,7 @@ class ToolLoopRunner:
         )
         if not content:
             if used:
-                partial = _partial_outro(trace)
+                partial = ack_aware_outro(trace)
                 trace[-1]["raw_response"] = partial
                 trace[-1]["partial"] = True
                 return partial, used, trace
@@ -289,17 +341,39 @@ class ToolLoopRunner:
                 }
             )
             return skip
+
         result = await self.bridge.execute(name, args, event=event)
+        retries = int(
+            self.tools_cfg.get("media_retry")
+            if self.tools_cfg.get("media_retry") is not None
+            else 1
+        )
+        delay = float(self.tools_cfg.get("media_retry_delay_sec") or 1.5)
+        if name in _MEDIA_RETRY_TOOLS and retries > 0 and _tool_result_failed(result):
+            for attempt in range(1, retries + 1):
+                logger.warning(
+                    "companion 媒体工具失败将重试 名称=%s 第%s/%s次",
+                    name,
+                    attempt,
+                    retries,
+                )
+                await asyncio.sleep(max(0.2, delay))
+                result = await self.bridge.execute(name, args, event=event)
+                if not _tool_result_failed(result):
+                    break
+
         if name in SINGLE_SHOT_TOOLS and not _tool_result_failed(result):
             turn_tool_cache[name] = result
         return result
 
 
-def _partial_outro(trace: list[dict[str, Any]]) -> str:
-    """工具已跑但收尾 LLM 挂掉：按 ACK 决定要不要再发话，避免与已发前言/图矛盾。"""
+def ack_aware_outro(trace: list[dict[str, Any]]) -> str:
+    """工具已跑但收尾 LLM 空/挂：按 ACK 决定口语，避免与已发前言/图矛盾。"""
     delivered = False
     ok = False
+    failed = False
     summary = ""
+    fail_summary = ""
     for entry in reversed(trace):
         for tc in entry.get("tool_calls") or []:
             ack = tc.get("ack") or {}
@@ -309,11 +383,37 @@ def _partial_outro(trace: list[dict[str, Any]]) -> str:
                 ok = True
                 if not summary:
                     summary = str(ack.get("summary") or "").strip()
+            elif ack:
+                failed = True
+                if not fail_summary:
+                    fail_summary = str(ack.get("summary") or "").strip()
     if delivered:
         return ""
     if ok:
         return summary or "好啦~"
-    return ""
+    if failed:
+        line = fail_summary or "唔，这次没办成……"
+        return line[:80]
+    return "唔，这次好像没回上……"
+
+
+def _partial_outro(trace: list[dict[str, Any]]) -> str:
+    """兼容旧名。"""
+    return ack_aware_outro(trace)
+
+
+def _shrink_tools_after_failover(
+    tools: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if not tools:
+        return []
+    out: list[dict[str, Any]] = []
+    for t in tools:
+        name = str((t.get("function") or {}).get("name") or "")
+        if any(name.startswith(p) for p in _FAILOVER_DROP_PREFIXES):
+            continue
+        out.append(t)
+    return out
 
 
 def _extract_message_text(message: dict[str, Any]) -> str:

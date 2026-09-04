@@ -16,6 +16,18 @@ class ProviderRouter:
         self.context = context
         self.config = config or {}
         self.providers_cfg = self.config.get("providers") or {}
+        # 本回合是否已走过备供应商（供工具面收缩）
+        self.turn_used_failover = False
+
+    def begin_turn(self) -> None:
+        self.turn_used_failover = False
+
+    def consume_failover(self) -> bool:
+        """若本回合用过备供应商则返回 True 并清除标记（供当轮收缩工具）。"""
+        if not self.turn_used_failover:
+            return False
+        self.turn_used_failover = False
+        return True
 
     def list_profiles(self) -> list[dict[str, Any]]:
         """返回供应商摘要（不含完整 key）。"""
@@ -159,6 +171,8 @@ class ProviderRouter:
                     i == 0 and not self.providers_cfg.get("fallback_on_empty", True)
                 ):
                     if text:
+                        if i > 0:
+                            self.turn_used_failover = True
                         logger.info(
                             "companion 模型=%s profile=%s", creds["model"], pid
                         )
@@ -209,6 +223,7 @@ class ProviderRouter:
                     retries=retries if i == 0 else 1,
                 )
                 if i > 0:
+                    self.turn_used_failover = True
                     logger.info(
                         "companion 工具链回退供应商=%s model=%s", pid, creds["model"]
                     )

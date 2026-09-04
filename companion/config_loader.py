@@ -191,6 +191,9 @@ DEFAULTS: dict[str, Any] = {
         "denylist": [],
         "persona_outro": True,
         "preface_on_slow": True,
+        "media_retry": 1,
+        "media_retry_delay_sec": 1.5,
+        "failover_shrink_tools": True,
         "adapters": {
             "music": True,
             "image_search": True,
