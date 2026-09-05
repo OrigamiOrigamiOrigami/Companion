@@ -32,8 +32,6 @@ SINGLE_SHOT_TOOLS = frozenset(
         "image_search_google",
         "schedule_reminder",
         "cancel_reminder",
-        "mute_group_member",
-        "unmute_group_member",
         "mention_group_member",
     }
 )
@@ -160,14 +158,37 @@ class ToolBridge:
             return ack
 
         timeout = self._resolve_timeout(name, timeout_sec)
+        invoke_task = asyncio.create_task(
+            self._invoke(spec.func_tool, args, event=event)
+        )
         try:
-            result = await asyncio.wait_for(
-                self._invoke(spec.func_tool, args, event=event),
-                timeout=timeout,
-            )
+            # shield：超时只结束等待，不取消慢工具（避免半截上传后又重试再发一遍）
+            if _is_slow_tool(name):
+                result = await asyncio.wait_for(
+                    asyncio.shield(invoke_task),
+                    timeout=timeout,
+                )
+            else:
+                result = await asyncio.wait_for(invoke_task, timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning("companion 工具超时 名称=%s 已等=%ss", name, timeout)
             msg = f"工具 {name} 执行超时（{timeout}s），结果未确认"
+            if _is_slow_tool(name) and not invoke_task.done():
+                msg += "；后台仍可能继续，请勿立刻对同一目标重试"
+                def _log_late(t: asyncio.Task) -> None:
+                    try:
+                        if t.cancelled():
+                            return
+                        exc = t.exception()
+                        if exc:
+                            logger.warning(
+                                "companion 慢工具超时后失败 名称=%s 错误=%s", name, exc
+                            )
+                        else:
+                            logger.info("companion 慢工具超时后完成 名称=%s", name)
+                    except Exception:
+                        pass
+                invoke_task.add_done_callback(_log_late)
             ack = build_tool_ack(name, msg, ok=False, delivered=False)
             self._log_invocation(
                 name,
@@ -177,6 +198,8 @@ class ToolBridge:
             )
             return ack
         except Exception as e:
+            if not invoke_task.done():
+                invoke_task.cancel()
             logger.warning("companion 工具失败 名称=%s 错误=%s", name, e, exc_info=True)
             msg = f"工具 {name} 执行失败: {e}"[:500]
             ack = build_tool_ack(name, msg, ok=False)
@@ -306,6 +329,13 @@ class ToolBridge:
                 )
             )
 
+        # 有 AstrBot 内置 web_search_* 时，隐藏重复的 MCP 搜索（省一轮慢调用）
+        has_builtin_search = any(
+            s.origin != "mcp" and s.name.startswith("web_search") for s in specs
+        )
+        if has_builtin_search:
+            specs = [s for s in specs if not _is_redundant_mcp_search(s)]
+
         mcp_specs = [s for s in specs if s.origin == "mcp"]
         if mcp_enabled and mcp_specs and not _MCP_READY_LOGGED:
             _MCP_READY_LOGGED = True
@@ -407,6 +437,16 @@ class ToolBridge:
 
 def _is_slow_tool(name: str) -> bool:
     return name.startswith(_SLOW_TOOL_PREFIXES)
+
+
+def _is_redundant_mcp_search(spec: ToolSpec) -> bool:
+    """MCP 搜索与内置 web_search_* 重复时隐藏。"""
+    if getattr(spec, "origin", "") != "mcp":
+        return False
+    n = (spec.name or "").lower()
+    if "fetch" in n:
+        return False
+    return any(k in n for k in ("search", "duckduckgo", "ddg", "bing"))
 
 
 def _normalize_parameters(params: dict[str, Any] | None) -> dict[str, Any]:

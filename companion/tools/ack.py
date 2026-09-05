@@ -49,14 +49,16 @@ _FAIL_MARKERS = (
     "R18G",
     "网络好像不太顺畅",
     "可能被风控",
+    "未找到结果",
+    "不是有效标签",
 )
 
 # 仅「内容已出现在聊天」才算 delivered；「正在上传/任务已启动」不算
 _JM_DELIVERED_MARKERS = (
-    "预览已发",
     "请查收",
     "搜索结果发给你",
     "已查询漫画",  # 预览卡/详情已 event.send
+    "刚才已发过",
 )
 # 明确未送达（优先于上面的模糊命中）
 _JM_NOT_DELIVERED_MARKERS = (
@@ -224,6 +226,10 @@ def _summarize(tool: str, raw: str, *, ok: bool, delivered: bool) -> str:
     if tool == "jmcomic_download":
         return raw[:200] if raw else "下载/上传未确认送达"
     if tool.startswith("jmcomic_"):
+        if tool == "jmcomic_search" and (
+            "JM" in (raw or "") or "标签搜索" in (raw or "") or "标题搜索" in (raw or "")
+        ):
+            return "搜索有结果，请选 ID 调用 jmcomic_download"
         return "搜索/查询已执行"
     if raw:
         return raw[:200]

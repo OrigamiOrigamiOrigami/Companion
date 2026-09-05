@@ -35,7 +35,7 @@ ADAPTER_SPECS: list[tuple[str, str, list, Callable[..., Awaitable[str]], str]] =
         "按标签或标题搜索禁漫本子",
         [
             {"type": "string", "name": "mode", "description": "tag 或 title"},
-            {"type": "string", "name": "keyword", "description": "搜索关键词"},
+            {"type": "string", "name": "keyword", "description": "真实搜索标签或标题词，禁止填随机/随便"},
             {"type": "number", "name": "page", "description": "页码，默认 1"},
         ],
         handlers.jmcomic_search,
@@ -75,27 +75,6 @@ ADAPTER_SPECS: list[tuple[str, str, list, Callable[..., Awaitable[str]], str]] =
         "reminder",
     ),
     (
-        "mute_group_member",
-        "群禁言：把指定成员禁言一段时间。用户说禁言/闭嘴/口球并 @ 对方或回复其消息时用。机器人需有群管权限。",
-        [
-            {"type": "string", "name": "user_id", "description": "被禁言 QQ 号；也可留空从 @/回复推断"},
-            {"type": "number", "name": "duration_minutes", "description": "禁言分钟数，可小数"},
-            {"type": "number", "name": "duration_seconds", "description": "禁言秒数；与分钟二选一，优先秒"},
-            {"type": "string", "name": "reason", "description": "事由，可空"},
-        ],
-        handlers.mute_group_member,
-        "mute",
-    ),
-    (
-        "unmute_group_member",
-        "解除群禁言。用户说解禁/解除禁言并 @ 对方时用。",
-        [
-            {"type": "string", "name": "user_id", "description": "要解禁的 QQ 号；可留空从 @/回复推断"},
-        ],
-        handlers.unmute_group_member,
-        "mute",
-    ),
-    (
         "mention_group_member",
         "群聊真正@某人（发出 At 组件）。用户让你@/艾特/点名/喊某某出来时用；name 填外号或群名片，或填 user_id。优先本工具，不要只在正文写假@。",
         [
@@ -124,7 +103,6 @@ class AdapterRegistry:
                 "jmcomic": True,
                 "setu": True,
                 "reminder": True,
-                "mute": True,
                 "mention": True,
             }
 
@@ -155,12 +133,12 @@ class AdapterRegistry:
             ("jmcomic", "jmcomic"),
             ("setu", "setu"),
             ("reminder", "companion"),
-            ("mute", "companion"),
+            ("mention", "companion"),
         ):
             from .registry import resolve_plugin
 
             enabled = self.adapters_cfg.get(key, True)
-            if key in ("reminder", "mute"):
+            if key in ("reminder", "mention"):
                 lines.append(f"- {key}: 适配{'开' if enabled else '关'} / 内置")
                 continue
             loaded = resolve_plugin(star_name) is not None

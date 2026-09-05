@@ -1,2 +1,2 @@
-对方发了图，并想查出处 / 作者 / 是哪张图时 → 调 image_search_saucenao 或 image_search_ascii2d 或 image_search_google（按可用情况选一个）。
-没图、只是闲聊看图感想时 → 不要调。
+有图且要查出处 / 作者 → image_search_saucenao / ascii2d / google（选一个可用的）。
+没图或只聊感想 → 不要调。

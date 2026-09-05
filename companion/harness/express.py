@@ -69,6 +69,10 @@ class Expressor:
                 vision_urls = await extract_vision_images(event, max_images=1)
             except Exception as e:
                 logger.warning("companion 视觉图片提取失败: %s", e)
+            if perception.has_image and not vision_urls:
+                logger.warning(
+                    "companion 视觉：消息含图但未拿到像素（下载失败或过大），模型将看不见画面"
+                )
 
         messages = self._build_messages(
             card,
@@ -189,8 +193,9 @@ class Expressor:
         tool_plan: ToolPlan | None = None,
     ) -> str:
         tools_cfg = self.config.get("tools") or {}
-        # order=chat：本回合不挂工具，避免闲聊/发表情被误打成搜图/setu
-        tools_ok = not (tool_plan and tool_plan.order == "chat")
+        # 默认挂全量工具，由模型理解意图决定是否调用。
+        reason = getattr(tool_plan, "reason", "") if tool_plan else ""
+        tools_ok = reason != "voice_speak_no_tools"
         use_tools = (
             tools_ok
             and self.tool_loop is not None
@@ -276,6 +281,8 @@ class Expressor:
             speak_line=extract_voice_speak_line(perception.text or ""),
         )
 
+        from ..tools.continuation_intent import is_another_one_intent
+
         focus_hint = ""
         if force_voice:
             focus_hint = (
@@ -283,20 +290,32 @@ class Expressor:
                 "上文仅作称呼/气氛参考；若本条是「用语音说某句话」，就念那句话（可加极短反应），"
                 "不要回聊上文的 TTS/模型/技术话题，也不要点歌，除非本条明确在问或要歌。"
             )
+        elif is_another_one_intent(perception.text or ""):
+            focus_hint = (
+                "【本回合焦点】本条是接续上文的『再来一个/换一个』："
+                "必须延续上一轮任务（本子/涩图等）并调用对应工具；"
+                "禁止当成新闲聊只回表情或空口答应。"
+            )
         else:
             focus_hint = (
                 "【本回合焦点】优先回应【本条】；上文仅作接话参考，勿把上一轮长话题当成这轮问题。"
+            )
+        if vision_urls:
+            focus_hint += (
+                "本条带了图片：必须先根据画面内容回应；"
+                "禁止无视图片。"
             )
         media_hint = ""
         if vision_urls:
             media_hint = (
                 "【视觉】本条用户消息附带了图片，你可以直接看到画面内容。"
                 "请根据画面自然回应；不要说「看不见图」「收不到图片」。"
+                "若对方只说「这个」而配了图，图就是所指对象。"
             )
         elif perception.has_visual:
             media_hint = (
-                "【媒体】对方发了图片或表情，但本条未能解析出图像数据。"
-                "可以请对方重发或描述一下；不要说「系统不支持图片」。"
+                "【媒体】对方发了图片或表情，但本条未能解析出图像数据，你现在看不见画面。"
+                "请明确说没看清/请重发，禁止根据上文臆测图里是什么。"
             )
         elif perception.record_count:
             media_hint = "【媒体】对方发了语音，你暂时听不了内容，可请对方打字。"
@@ -401,9 +420,11 @@ class Expressor:
         )
         user_content: Any
         if vision_urls:
-            user_content = [{"type": "text", "text": user_text}]
+            # 图在前、文在后：降低「先读完击破队上文再瞥一眼图」的偏置
+            user_content = []
             for url in vision_urls:
                 user_content.append({"type": "image_url", "image_url": {"url": url}})
+            user_content.append({"type": "text", "text": user_text})
         else:
             user_content = user_text
 
@@ -493,6 +514,38 @@ def _time_period(hour: int) -> str:
     return "深夜"
 
 
+def _is_image_deixis(text: str) -> bool:
+    """短指代：这个/那个/看看 + 图时，紧邻上文极易把指代绑错。"""
+    t = re.sub(r"\s+", "", (text or "").strip())
+    if not t:
+        return True
+    if len(t) > 24:
+        return False
+    cues = (
+        "这个",
+        "那个",
+        "这啥",
+        "那啥",
+        "看看",
+        "看下",
+        "瞧瞧",
+        "啥意思",
+        "什么意思",
+        "怎么看",
+        "咋看",
+        "怎么样",
+        "咋样",
+        "这是",
+        "那是",
+    )
+    if t in cues or t in {c + "？" for c in cues} or t in {c + "?" for c in cues}:
+        return True
+    # 「这个嘛」「那个啊」等极短
+    if len(t) <= 8 and any(t.startswith(c) for c in ("这个", "那个", "看看", "看下", "这是", "那是")):
+        return True
+    return False
+
+
 def _format_user_turn(
     perception: Perception,
     decision: Decision,
@@ -534,10 +587,39 @@ def _format_user_turn(
                 f"【对方】本群称呼/昵称：{label}。"
                 "可自然这样叫对方，别每句硬喊，也别改成别的外号（除非对方刚说过）。"
             )
+
     before = (nearby or {}).get("before") or []
     after = (nearby or {}).get("after") or []
+    deixis = with_image and _is_image_deixis(text)
+
+    # 有图：先写本条，再（可选）弱上文，避免「什么队→这个」绑死指代
+    if with_image:
+        chunks.append(f"【本条·{who}·含配图】" if who else "【本条·含配图】")
+        if deixis:
+            chunks.append("（短指代默认指配图；先回应画面，勿用上文话题顶替图意）")
+        else:
+            chunks.append("（有配图：先看画面再回话；上文仅气氛参考）")
+        if force_voice:
+            speak = extract_voice_speak_line(text)
+            if speak:
+                chunks.append(f"（请用语音念出大意：「{speak}」；可极短反应，勿换话题）")
+        if decision.action == "SHORT":
+            chunks.append(f"（简短回应）{body}")
+        else:
+            chunks.append(body)
+        # 短指代：不塞紧邻上文 / 她最近说过（system 里画像近况仍在）
+        if before and not deixis and not force_voice:
+            show_n = min(2, len(before))
+            chunks.append(
+                "【紧邻上文】（弱参考；与画面冲突时以画面为准）"
+            )
+            for item in before[-show_n:]:
+                sp = item.get("speaker") or "?"
+                tx = item.get("text") or ""
+                chunks.append(f"- {sp}: {tx}")
+        return "\n".join(chunks)
+
     if before:
-        # 语音念白：少塞「她当时回」长文，只保留对方原话作气氛
         show_n = min(len(before), 3 if force_voice else len(before))
         chunks.append("【紧邻上文】（请接着这些话理解本条，勿装作没看见；本条优先）")
         for item in before[-show_n:]:

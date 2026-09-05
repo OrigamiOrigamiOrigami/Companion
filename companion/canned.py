@@ -9,7 +9,6 @@ def _fallback() -> str:
     return pick_variant("fallback")
 
 
-# 兼容旧 import：常量仍可用，但会在模块加载时固定；运行时请用函数
 FALLBACK = pick_variant("fallback")
 
 # —— /companion on|off ——
@@ -81,9 +80,11 @@ TOOL_IMAGE_SEARCH_OK = "图找到了，发你啦~"
 TOOL_ASCII2D_OK = "Ascii2D 的检索结果发过去咯~"
 TOOL_GOOGLE_OK = "谷歌识图的结果整理好发给你了~"
 TOOL_JM_SEARCH_NEED_KW = "想搜什么？把关键词告诉我嘛~"
-TOOL_JM_SEARCH_OK = "搜索结果已经发过去了~"
+TOOL_JM_SEARCH_OK = "搜索做完了（结果在回执里）。"
+TOOL_JM_SEARCH_EMPTY = "未找到结果，请换具体标签再搜（不要用「随机/随便」当标签）。"
+TOOL_JM_SEARCH_BAD_KW = "「{keyword}」不是有效标签，请换具体 tag（如全彩、中文）再调 jmcomic_search。"
 TOOL_JM_NEED_ID = "目标 ID 呢？可别漏了~"
-TOOL_JM_PREVIEW_OK = "编号 {comic_id} 的预览发了，别急，PDF 正在后台下呢~"
+TOOL_JM_PREVIEW_OK = "编号 {comic_id} 处理中，等上传回执再说话。"
 TOOL_SETU_OK = "图发过去了哦~{detail}"
 
 # —— 其它场景（运行时请用 pick_*，避免复读）——

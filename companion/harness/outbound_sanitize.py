@@ -14,7 +14,16 @@ _EMOTION_RE = re.compile(r"emotion\s*[:=]\s*([a-z_]+)", re.I)
 _POKE_WANTED_RE = re.compile(r"poke_wanted\s*[:=]\s*(true|false|yes|no|1|0)", re.I)
 _JSON_ACK_RE = re.compile(r'^\s*\{\s*"ok"\s*:', re.I)
 _META_LINE_RE = re.compile(
-    r"^(tool_calls?|function_call|arguments)\s*[:=]",
+    r"^(tool_calls?|function_call|arguments|called|calling|invoke(?:d)?)\s*[:=]",
+    re.I,
+)
+# 模型把工具调用写成可见正文：`[Called: jmcomic_download]`
+_CALLED_BRACKET_RE = re.compile(
+    r"\[\s*(?:Called|Calling|Tool\s*Call|Invoke(?:d)?)\s*:\s*[^\]]+\]",
+    re.I,
+)
+_CALLED_LINE_RE = re.compile(
+    r"^(?:Called|Calling|Invoke(?:d)?)\s*:\s*\S+\s*$",
     re.I,
 )
 
@@ -51,6 +60,7 @@ def sanitize_outbound_text(text: str, *, strip_asterisk_actions: bool = False) -
     out = _STICKER_INTENT_RE.sub("", out)
     out = _EMOTION_RE.sub("", out)
     out = _POKE_WANTED_RE.sub("", out)
+    out = _CALLED_BRACKET_RE.sub("", out)
     # 保留换行：多句气泡别压成一行
     out = re.sub(r"[ \t]+\n", "\n", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
@@ -63,11 +73,18 @@ def sanitize_outbound_text(text: str, *, strip_asterisk_actions: bool = False) -
         except json.JSONDecodeError:
             logger.debug("companion 出站：丢弃泄漏的 json 确认包")
             return ""
-    if _META_LINE_RE.match(out):
+    if _META_LINE_RE.match(out) or _CALLED_LINE_RE.match(out):
         return ""
     if out.startswith("{") and '"tool"' in out and '"ok"' in out:
         return ""
-    return out.strip()
+    # 多行里夹着的纯 Called 行也丢掉
+    kept = [
+        ln
+        for ln in out.splitlines()
+        if ln.strip() and not _META_LINE_RE.match(ln.strip()) and not _CALLED_LINE_RE.match(ln.strip())
+    ]
+    out = "\n".join(kept).strip()
+    return out
 
 
 _PLACEHOLDER_BUBBLES = frozenset({"……", "...", "…", "。。。", "。。", "．", "."})

@@ -61,3 +61,19 @@ _Avoid_: 用「取消工具副作用」混称（工具已执行的 ACK 另论）
 **keep_going（续聊）**:
 群里机器人刚说过话后、用户未再 @/唤醒词仍可能接话的触发。**本阶段搁置（no-op）**；唤醒靠硬 @ / soft_mention / 私聊。
 _Avoid_: 用 LLM 判「这句话算不算还要回」（易把「懂了」接成续聊）
+
+**parser_link 静音**:
+私聊正文像 `astrbot_plugin_parser` 会解析的分享（B站/抖音/小红书等）时 Decide=`SILENCE`，避免与解析插件双响。由 `decide.silence_parser_links` 控制（默认开）。
+_Avoid_: 把群聊硬 @ 带链接也静掉；不要 import parser 做匹配
+
+**内置网页搜索**:
+AstrBot 的搜索工具。无 key 时默认 denylist 掉 `web_search_tavily` / `web_search_bocha`，只用免费 `web_search`。
+_Avoid_: 把未配置的付费搜索仍挂给模型（会空枪耗轮次）
+
+**chat / 工具面（无闸门）**:
+`ToolPlan.reason=model_decides`：本回合挂上已启用适配器的**全部**工具；是否调用、调哪个由模型理解对方意图决定。仅 `voice_speak_no_tools` / 总开关关闭时不挂工具。
+_Avoid_: 用关键词闸门把 jm/setu 从闲聊回合摘掉（「换一个」等指代会无法触发）
+
+**jm 工具提示**:
+skill 仍给 search/download/随机/换一本的用法提示；不作为是否挂工具的闸门。
+_Avoid_: 仅当抽出本子 ID 或含「本子」二字才开放 jm 工具

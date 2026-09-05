@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .parser_links import looks_like_parser_share
 from .presence import night_afk_roll
 from .types import Decision, InnerState, Perception
 
@@ -19,6 +20,9 @@ def decide(
     唤起：硬 @ / 私聊 / soft_mention（含句首唤醒词）。
     ``speech_triggers.keep_going``（续聊）本阶段故意 no-op——无唤醒词不接话，
     避免模型把「懂了」接成续聊；见 CONTEXT.md。
+
+    私聊里若像 astrbot_plugin_parser 会解析的分享链接，默认 SILENCE，
+    把舞台让给解析插件（``decide.silence_parser_links``）。
     """
     if perception.rest_keyword and not perception.hard_mentioned:
         return Decision("SILENCE", "rest_gate")
@@ -26,7 +30,17 @@ def decide(
         return Decision("SILENCE", "group_disabled")
     if perception.hard_mentioned or perception.trigger == "hard_mention":
         return Decision("FULL", "hard_mention", allow_tools=True)
-    if perception.is_private or perception.trigger == "private":
+
+    decide_cfg = config.get("decide") or {}
+    private_like = perception.is_private or perception.trigger == "private"
+    if (
+        private_like
+        and bool(decide_cfg.get("silence_parser_links", True))
+        and looks_like_parser_share(perception.text)
+    ):
+        return Decision("SILENCE", "parser_link")
+
+    if private_like:
         return Decision("FULL", "private", allow_tools=True)
 
     triggers = (config.get("group") or {}).get("speech_triggers") or {}

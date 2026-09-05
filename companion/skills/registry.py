@@ -3,13 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..tools.jm_intent import extract_comic_id, is_jm_context, is_jm_search_intent
-from ..tools.link_intent import extract_urls, has_http_url
-from ..tools.mention_intent import is_mention_intent
-from ..tools.mute_intent import is_mute_intent
-from ..tools.reminder_intent import is_reminder_intent
-from ..tools.setu_intent import is_setu_intent, parse_llm_setu_tags
-from ..voice.intent import is_song_tool_intent
+from ..tools.continuation_intent import is_another_one_intent
+from ..tools.jm_intent import extract_comic_id, is_jm_search_intent
+from ..tools.link_intent import extract_urls
 
 _SKILLS_ROOT = Path(__file__).resolve().parent
 
@@ -21,8 +17,8 @@ _SKILL_FILES: tuple[tuple[str, str, str], ...] = (
     ("jmcomic", "astrbot", "astrbot/jmcomic.md"),
     ("image_search", "astrbot", "astrbot/image_search.md"),
     ("reminder", "astrbot", "astrbot/reminder.md"),
-    ("mute", "astrbot", "astrbot/mute.md"),
     ("mention", "astrbot", "astrbot/mention.md"),
+    ("web_search", "astrbot", "astrbot/web_search.md"),
     ("fetch_web", "mcp", "mcp/fetch_web.md"),
     ("mcp_generic", "mcp", "mcp/_generic.md"),
 )
@@ -31,16 +27,14 @@ _SKILL_FILES: tuple[tuple[str, str, str], ...] = (
 _CATALOG_BLURB: dict[str, str] = {
     "music": "要点歌/放歌/来一首时",
     "setu": "要涩图/「来点XX」插画时",
-    "jmcomic": "搜本子或下本子 ID 时",
+    "jmcomic": "要本子时（搜、下、随机、换一本均由你判断）",
     "image_search": "有图且问出处/作者时",
     "reminder": "要闹钟/N分钟后提醒/到点喊我时",
-    "mute": "要禁言/闭嘴/解禁某人时",
     "mention": "要真@/艾特/点名/喊某人出来时",
+    "web_search": "不确定的实时事实或对方要搜/查时（优先内置搜索）",
     "fetch_web": "消息里有链接要打开/概括时",
-    "mcp_generic": "明确要搜/查且无更贴专用技能时",
+    "mcp_generic": "无内置搜索且明确要搜/查时才用 MCP",
 }
-
-_SEARCH_HELP_KW = ("搜", "查", "搜索", "帮我查", "查一下", "搜一下")
 
 
 class SkillRegistry:
@@ -70,72 +64,53 @@ class SkillRegistry:
         tool_plan: Any | None,
         specs: list[Any] | None = None,
     ) -> list[str]:
-        """按意图 + 可见工具选出要展开的 skill id（含 protocol）。闲聊返回 []。"""
-        text = getattr(perception, "text", None) or ""
-        order = (getattr(tool_plan, "order", None) if tool_plan else "chat") or "chat"
+        """按本回合可见工具展开 skill（含 protocol）。无关键词闸门，由模型理解意图。"""
+        reason = str(getattr(tool_plan, "reason", None) or "") if tool_plan else ""
+        if reason in ("voice_speak_no_tools", "tools_disabled", "tools_off"):
+            return []
+
         names = {n.lower() for n in available_names}
-        has_image = bool(getattr(perception, "has_image", False))
+        if not names:
+            return []
 
         business: list[str] = []
-
-        if is_song_tool_intent(text) and "play_song_by_name" in names:
+        if "play_song_by_name" in names:
             business.append("music")
-
-        reminder_hit = is_reminder_intent(text) and (
-            "schedule_reminder" in names or "cancel_reminder" in names
-        )
-        mute_hit = is_mute_intent(text) and (
-            "mute_group_member" in names or "unmute_group_member" in names
-        )
-        mention_hit = is_mention_intent(text) and ("mention_group_member" in names)
-        if reminder_hit:
-            business.append("reminder")
-        if mute_hit:
-            business.append("mute")
-        if mention_hit:
-            business.append("mention")
-
-        # 禁言/提醒/点名回合不要因 @QQ 数字误展开 jmcomic / setu
-        if not mute_hit and not reminder_hit and not mention_hit:
-            if is_setu_intent(text) and "setu_send_image" in names:
-                business.append("setu")
-
-            if any(n.startswith("jmcomic_") for n in names) and (
-                is_jm_search_intent(text) or is_jm_context(text)
-            ):
-                business.append("jmcomic")
-
-        if has_image and any(n.startswith("image_search_") for n in names):
+        if "setu_send_image" in names:
+            business.append("setu")
+        if any(n.startswith("jmcomic_") for n in names):
+            business.append("jmcomic")
+        if any(n.startswith("image_search_") for n in names):
             business.append("image_search")
-
-        if has_http_url(text):
+        if "schedule_reminder" in names or "cancel_reminder" in names:
+            business.append("reminder")
+        if "mention_group_member" in names:
+            business.append("mention")
+        if any(n.startswith("web_search") for n in names):
+            business.append("web_search")
+        if any("fetch" in n for n in names) or any(
+            n in names for n in ("tavily_extract_web_page", "firecrawl_extract_web_page")
+        ):
             business.append("fetch_web")
 
+        has_builtin_search = any(n.startswith("web_search") for n in names)
         mcp_names = [
             getattr(s, "name", "")
             for s in (specs or [])
             if getattr(s, "origin", "") == "mcp" and getattr(s, "name", "")
         ]
-        dedicated = {
-            "music",
-            "setu",
-            "jmcomic",
-            "image_search",
-            "reminder",
-            "mute",
-            "mention",
-            "fetch_web",
-        }
-        if (
-            mcp_names
-            and any(k in text for k in _SEARCH_HELP_KW)
-            and not (dedicated & set(business))
-        ):
+        other_mcp = []
+        for n in mcp_names:
+            low = n.lower()
+            if "fetch" in low:
+                continue
+            if has_builtin_search and any(
+                k in low for k in ("search", "duckduckgo", "ddg")
+            ):
+                continue
+            other_mcp.append(n)
+        if other_mcp:
             business.append("mcp_generic")
-
-        # 纯闲聊：整块借力不注入
-        if order == "chat" and not business:
-            return []
 
         bodies = self._load()
         out: list[str] = []
@@ -166,14 +141,26 @@ class SkillRegistry:
             out.append(("image_search", "astrbot"))
         if "schedule_reminder" in names or "cancel_reminder" in names:
             out.append(("reminder", "astrbot"))
-        if "mute_group_member" in names or "unmute_group_member" in names:
-            out.append(("mute", "astrbot"))
         if "mention_group_member" in names:
             out.append(("mention", "astrbot"))
-        if any("fetch" in n for n in names):
+        if any(n.startswith("web_search") for n in names):
+            out.append(("web_search", "astrbot"))
+        if any("fetch" in n for n in names) or any(
+            n in names for n in ("tavily_extract_web_page", "firecrawl_extract_web_page")
+        ):
             out.append(("fetch_web", "mcp"))
-        # 其它 MCP：有则列 mcp_generic 作为入口；具体名在目录行里带上
-        other_mcp = [n for n in mcp_names if "fetch" not in n.lower()]
+        # 其它 MCP：有则列 mcp_generic；已有内置搜索时不把搜索类 MCP 当入口
+        has_builtin_search = any(n.startswith("web_search") for n in names)
+        other_mcp = []
+        for n in mcp_names:
+            low = n.lower()
+            if "fetch" in low:
+                continue
+            if has_builtin_search and any(
+                k in low for k in ("search", "duckduckgo", "ddg")
+            ):
+                continue
+            other_mcp.append(n)
         if other_mcp:
             out.append(("mcp_generic", "mcp"))
         return out
@@ -267,11 +254,13 @@ class SkillRegistry:
 
 def _jm_hint(text: str) -> str:
     comic_id = extract_comic_id(text)
-    if is_jm_search_intent(text):
-        return "本条偏搜索，优先 jmcomic_search。"
     if comic_id:
-        return f'本条 ID={comic_id}，调 jmcomic_download，comic_id="{comic_id}"。'
-    return "有数字 ID 用 download；搜关键词用 search。"
+        return f"本条有 ID={comic_id} → download。"
+    if is_another_one_intent(text):
+        return "本条是再来/换一本 → 继续 search 后 download，勿闲聊。"
+    if is_jm_search_intent(text):
+        return "本条偏搜 → search。"
+    return "搜用 search，下用 download。"
 
 
 def _tag_hint(text: str, card: Any | None = None) -> str:
@@ -282,8 +271,8 @@ def _tag_hint(text: str, card: Any | None = None) -> str:
             ext.get("setu_tag") or getattr(card, "display_name", "") or getattr(card, "id", "")
         ).strip()
     if character_tag:
-        return f"tags 由你按语义填写；你扮演 {character_tag}，勿机械拆原话"
-    return "tags 由你按语义填写，勿机械拆用户原话"
+        return f"角色检索词可用 {character_tag}。"
+    return ""
 
 
 def build_tool_skill_hint(

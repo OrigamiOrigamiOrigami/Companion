@@ -24,7 +24,8 @@
   },
 
   "decide": {
-    "_comment": "familiarity_threshold / llm_assist 暂未接线（reserved）",
+    "_comment": "silence_parser_links 已生效；familiarity_threshold / llm_assist 暂未接线（reserved）",
+    "silence_parser_links": true,
     "familiarity_threshold": "warming",
     "llm_assist": false
   },
@@ -142,7 +143,7 @@
     "slow_timeout_sec": 120,
     "parallel_max": 2,
     "allowlist": [],
-    "denylist": [],
+    "denylist": ["web_search_tavily", "web_search_bocha"],
     "persona_outro": true,
     "adapters": {
       "music": true,
@@ -150,17 +151,8 @@
       "jmcomic": true,
       "setu": true,
       "reminder": true,
-      "mute": true
+      "mention": true
     }
-  },
-
-  "mute": {
-    "enabled": true,
-    "default_duration_sec": 60,
-    "min_duration_sec": 10,
-    "max_duration_sec": 3600,
-    "protect_admins": true,
-    "require_admin_requester": false
   },
 
   "concurrency": {

@@ -87,8 +87,8 @@
     },
     "启用多模态视觉": {
         "type": "bool",
-        "description": "把用户发的图片传给模型（MiniMax-M3 等多模态）",
-        "hint": "关闭则只告诉模型「有图」但不传像素",
+        "description": "把用户发的图片传给模型（需多模态模型）",
+        "hint": "关闭则只告诉模型「有图」但不传像素；请选用支持视觉的模型",
         "default": true
     },
 
@@ -145,6 +145,12 @@
     "自适应合并窗口": {
         "type": "bool",
         "description": "将合并窗口限制在约 1.5–3 秒（生效）",
+        "default": true
+    },
+    "私聊解析链接静音": {
+        "type": "bool",
+        "description": "私聊收到 B站/抖音/小红书等解析插件会处理的分享时不回复",
+        "hint": "默认开；与 astrbot_plugin_parser 错开，避免双响。群聊不受影响",
         "default": true
     },
     "主动插话熟悉度门槛": {
@@ -415,41 +421,10 @@
         "description": "是否启用内置延时提醒工具",
         "default": true
     },
-    "适配禁言工具": {
-        "type": "bool",
-        "description": "是否启用群禁言/解禁工具（机器人需有群管权限）",
-        "default": true
-    },
     "适配点名工具": {
         "type": "bool",
         "description": "是否启用群聊真@点名工具 mention_group_member",
         "default": true
-    },
-    "启用群禁言": {
-        "type": "bool",
-        "description": "总开关：群禁言功能",
-        "default": true
-    },
-    "禁言默认秒数": {
-        "type": "int",
-        "description": "未说明时长时的默认禁言秒数",
-        "default": 60
-    },
-    "禁言最长秒数": {
-        "type": "int",
-        "description": "单次禁言上限秒数（防误伤）",
-        "default": 3600
-    },
-    "禁言保护管理员": {
-        "type": "bool",
-        "description": "禁止禁言超管/管理员名单中的人",
-        "default": true
-    },
-    "禁言需管理员发起": {
-        "type": "bool",
-        "description": "仅超管/管理员/群管可以让她执行禁言",
-        "hint": "关闭则群友也可拜托她禁言（仍需机器人有群管权限）",
-        "default": false
     },
     "工具白名单": {
         "type": "list",
@@ -460,8 +435,8 @@
     "工具黑名单": {
         "type": "list",
         "items": { "type": "string" },
-        "description": "禁止调用的工具名",
-        "default": []
+        "description": "禁止调用的工具名（默认排除未配 key 的 Tavily/Bocha，只用免费 web_search）",
+        "default": ["web_search_tavily", "web_search_bocha"]
     },
 
     "同群并行回复数": {

@@ -11,6 +11,8 @@ from ...canned import (
     TOOL_IMAGE_SEARCH_OK,
     TOOL_JM_NEED_ID,
     TOOL_JM_PREVIEW_OK,
+    TOOL_JM_SEARCH_BAD_KW,
+    TOOL_JM_SEARCH_EMPTY,
     TOOL_JM_SEARCH_NEED_KW,
     TOOL_JM_SEARCH_OK,
     TOOL_MISSING,
@@ -21,6 +23,26 @@ from ..setu_intent import extract_setu_tags, parse_llm_setu_tags
 from .registry import PLUGIN_NAMES, command_result_text, resolve_plugin
 
 logger = logging.getLogger("astrbot")
+
+# 站内无此 tag / 无意义占位，禁止当 keyword
+_JM_USELESS_KEYWORDS = frozenset(
+    {
+        "随机",
+        "隨便",
+        "随便",
+        "任意",
+        "任意一本",
+        "来一本",
+        "来本",
+        "换一个",
+        "换一本",
+        "再来",
+        "推荐",
+        "random",
+        "any",
+        "recommend",
+    }
+)
 
 
 async def image_search_saucenao(event: AstrMessageEvent, context: Any) -> ToolExecResult:
@@ -77,9 +99,24 @@ async def jmcomic_search(
             text=TOOL_JM_SEARCH_NEED_KW,
             effective={"mode": mode, "keyword": "", "page": page},
         )
+    kw_key = keyword.lower().replace(" ", "")
+    if keyword in _JM_USELESS_KEYWORDS or kw_key in _JM_USELESS_KEYWORDS:
+        return ToolExecResult(
+            text=TOOL_JM_SEARCH_BAD_KW.format(keyword=keyword),
+            effective={"mode": mode, "keyword": keyword, "page": page, "rejected": True},
+        )
     result = await plugin.search_comics(mode, keyword, page, event)
     out = command_result_text(result, ok=TOOL_JM_SEARCH_OK)
     out.effective = {"mode": mode, "keyword": keyword, "page": page}
+    plain = (out.text or out.plugin_raw or "").strip()
+    if "未找到结果" in plain or "未找到" in plain:
+        # 空结果算失败，促使模型换词再搜，而不是直接口语收尾
+        out = ToolExecResult(
+            text=TOOL_JM_SEARCH_EMPTY if "未找到结果" in plain else plain,
+            plugin_sent=False,
+            plugin_raw=plain,
+            effective=out.effective,
+        )
     return out
 
 
@@ -287,36 +324,6 @@ async def cancel_reminder(
     )
 
 
-_mute_runtime: dict[str, Any] = {}
-
-
-def bind_mute_config(config: dict[str, Any] | None) -> None:
-    global _mute_runtime
-    _mute_runtime = dict(config or {})
-
-
-def _mute_settings() -> dict[str, Any]:
-    cfg = dict((_mute_runtime.get("mute") or {}))
-    cfg.setdefault("enabled", True)
-    cfg.setdefault("default_duration_sec", 60)
-    cfg.setdefault("min_duration_sec", 10)
-    cfg.setdefault("max_duration_sec", 3600)
-    cfg.setdefault("protect_admins", True)
-    cfg.setdefault("require_admin_requester", False)
-    return cfg
-
-
-def _protected_ids(context: Any) -> set[str]:
-    """超管 + 管理员，默认不可被禁言。"""
-    out: set[str] = set()
-    adm = (_mute_runtime.get("admins") or {})
-    for x in list(adm.get("super") or []) + list(adm.get("operators") or []):
-        s = str(x).strip()
-        if s:
-            out.add(s)
-    return out
-
-
 def _mentions(event: AstrMessageEvent) -> list[str]:
     out: list[str] = []
     try:
@@ -375,192 +382,6 @@ def _self_id(event: AstrMessageEvent) -> str:
     msg = getattr(event, "message_obj", None)
     sid = getattr(msg, "self_id", None) if msg else None
     return str(sid) if sid else ""
-
-
-def _is_requester_admin(event: AstrMessageEvent, context: Any) -> bool:
-    sender = str(event.get_sender_id())
-    if sender in _protected_ids(context):
-        return True
-    try:
-        if hasattr(event, "is_admin") and event.is_admin():
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def _resolve_mute_target(
-    event: AstrMessageEvent,
-    user_id: str = "",
-) -> str:
-    uid = str(user_id or "").strip()
-    if uid.isdigit():
-        return uid
-    mentions = _mentions(event)
-    self_id = _self_id(event)
-    for m in mentions:
-        if m and m != self_id:
-            return m
-    reply_uid = _reply_sender_id(event)
-    if reply_uid and reply_uid != self_id:
-        return reply_uid
-    # 「禁言我」
-    msg = getattr(event, "message_str", None) or ""
-    if any(k in msg for k in ("禁言我", "把我禁言", "禁言一下我", "给我口球")):
-        return str(event.get_sender_id())
-    return ""
-
-
-def _format_duration(sec: float) -> str:
-    s = int(max(0, round(sec)))
-    if s <= 0:
-        return "0 秒"
-    if s < 60:
-        return f"{s} 秒"
-    if s < 3600:
-        m = s // 60
-        r = s % 60
-        return f"{m} 分{r} 秒" if r else f"{m} 分钟"
-    h = s // 3600
-    m = (s % 3600) // 60
-    return f"{h} 小时{m} 分" if m else f"{h} 小时"
-
-
-async def _call_group_ban(
-    event: AstrMessageEvent,
-    *,
-    group_id: str,
-    user_id: str,
-    duration: int,
-) -> tuple[bool, str]:
-    try:
-        if event.get_platform_name() not in ("aiocqhttp", "onebot"):
-            return False, "当前平台不支持群禁言"
-    except Exception:
-        pass
-    bot = getattr(event, "bot", None)
-    if bot is None:
-        return False, "找不到机器人客户端"
-    try:
-        await bot.call_action(
-            "set_group_ban",
-            group_id=int(group_id),
-            user_id=int(user_id),
-            duration=int(duration),
-        )
-        return True, ""
-    except Exception as e:
-        logger.warning("companion 禁言失败 gid=%s uid=%s: %s", group_id, user_id, e)
-        return False, str(e)[:120]
-
-
-async def mute_group_member(
-    event: AstrMessageEvent,
-    context: Any,
-    user_id: str = "",
-    duration_seconds: float = 0,
-    duration_minutes: float = 0,
-    reason: str = "",
-) -> ToolExecResult:
-    """群禁言；需机器人有禁言权限。"""
-    from ..mute_intent import parse_mute_duration_seconds
-
-    settings = _mute_settings()
-    msg = getattr(event, "message_str", None) or ""
-    secs = float(duration_seconds or 0)
-    if secs <= 0 and duration_minutes:
-        secs = float(duration_minutes) * 60
-    if secs <= 0:
-        secs = parse_mute_duration_seconds(
-            msg, default=float(settings["default_duration_sec"])
-        )
-    min_s = float(settings["min_duration_sec"])
-    max_s = float(settings["max_duration_sec"])
-    secs = max(min_s, min(secs, max_s))
-    target = _resolve_mute_target(event, user_id)
-    gid = _group_id(event)
-    effective = {
-        "user_id": target,
-        "group_id": gid or "",
-        "duration_seconds": secs,
-        "reason": (reason or "").strip()[:40],
-    }
-    if not settings.get("enabled", True):
-        return ToolExecResult(text="执行失败：禁言功能已关闭", effective=effective)
-    if not gid:
-        return ToolExecResult(text="执行失败：只能在群里禁言哦", effective=effective)
-    if settings.get("require_admin_requester") and not _is_requester_admin(event, context):
-        return ToolExecResult(
-            text="执行失败：只有管理员才能让我禁言别人",
-            effective=effective,
-        )
-    if not target:
-        return ToolExecResult(
-            text="执行失败：要禁言谁？请 @ 对方，或回复那条消息，或给 QQ 号",
-            effective=effective,
-        )
-    self_id = _self_id(event)
-    if target == self_id:
-        return ToolExecResult(text="执行失败：我禁言我自己？才不要~", effective=effective)
-    if settings.get("protect_admins", True) and target in _protected_ids(context):
-        return ToolExecResult(
-            text="执行失败：这位是管理员，不能禁言",
-            effective=effective,
-        )
-    ok, err = await _call_group_ban(
-        event, group_id=str(gid), user_id=target, duration=int(secs)
-    )
-    if not ok:
-        detail = err or "未知错误"
-        hint = ""
-        if any(k in detail for k in ("权限", "permission", "140", "403", "not admin")):
-            hint = "（可能是我没群管权限，或对方职务比我高）"
-        return ToolExecResult(
-            text=f"执行失败：禁言没成功{hint} {detail}".strip(),
-            effective=effective,
-        )
-    human = _format_duration(secs)
-    text = f"禁言成功~ 已禁言 {target}，大约 {human}"
-    if reason:
-        text += f"（事由：{str(reason).strip()[:40]}）"
-    return ToolExecResult(text=text, plugin_sent=False, effective=effective)
-
-
-async def unmute_group_member(
-    event: AstrMessageEvent,
-    context: Any,
-    user_id: str = "",
-) -> ToolExecResult:
-    settings = _mute_settings()
-    target = _resolve_mute_target(event, user_id)
-    gid = _group_id(event)
-    effective = {"user_id": target, "group_id": gid or "", "duration_seconds": 0}
-    if not settings.get("enabled", True):
-        return ToolExecResult(text="执行失败：禁言功能已关闭", effective=effective)
-    if not gid:
-        return ToolExecResult(text="执行失败：只能在群里解禁哦", effective=effective)
-    if settings.get("require_admin_requester") and not _is_requester_admin(event, context):
-        return ToolExecResult(
-            text="执行失败：只有管理员才能让我解禁",
-            effective=effective,
-        )
-    if not target:
-        return ToolExecResult(
-            text="执行失败：要解禁谁？请 @ 对方，或回复那条消息，或给 QQ 号",
-            effective=effective,
-        )
-    ok, err = await _call_group_ban(
-        event, group_id=str(gid), user_id=target, duration=0
-    )
-    if not ok:
-        return ToolExecResult(
-            text=f"执行失败：解禁没成功 {err or ''}".strip(),
-            effective=effective,
-        )
-    return ToolExecResult(
-        text=f"好啦，已解除 {target} 的禁言~",
-        effective=effective,
-    )
 
 
 _member_cards: Any | None = None

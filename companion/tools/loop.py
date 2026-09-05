@@ -16,20 +16,17 @@ logger = logging.getLogger("astrbot")
 # 单意图管理类：跑完即收尾，禁止下一轮乱调 setu/jmcomic
 _TERMINAL_INTENT_TOOLS = frozenset(
     {
-        "mute_group_member",
-        "unmute_group_member",
         "schedule_reminder",
         "cancel_reminder",
         "mention_group_member",
     }
 )
 
-# 瞬时失败可短重试的媒体类工具
+# 瞬时失败可短重试的媒体类工具（不含 search：空结果/无效词应换参，勿同参重试）
 _MEDIA_RETRY_TOOLS = frozenset(
     {
         "setu_send_image",
         "jmcomic_download",
-        "jmcomic_search",
         "image_search_saucenao",
         "image_search_ascii2d",
         "image_search_google",
@@ -39,12 +36,15 @@ _MEDIA_RETRY_TOOLS = frozenset(
 # failover 后收窄：去掉重媒体，保留管理/轻工具
 _FAILOVER_DROP_PREFIXES = ("setu_", "jmcomic_", "image_search_")
 
-# tool_plan.reason → 本回合只暴露这些工具
-_INTENT_TOOL_ALLOW: dict[str, frozenset[str]] = {
-    "mute": frozenset({"mute_group_member", "unmute_group_member"}),
-    "reminder": frozenset({"schedule_reminder", "cancel_reminder"}),
-    "mention": frozenset({"mention_group_member"}),
-}
+
+def filter_tools_for_plan(
+    tools: list[dict[str, Any]] | None,
+    tool_plan: Any | None,
+) -> list[dict[str, Any]]:
+    """本回合可见工具。默认不闸门，全量交给模型；仅 voice 念白等由上层禁工具。"""
+    if not tools:
+        return []
+    return list(tools)
 
 
 class ToolLoopRunner:
@@ -74,13 +74,10 @@ class ToolLoopRunner:
     ) -> tuple[str, list[str], list[dict[str, Any]]]:
         """链路：① 选工具（可同轮发「正在…」前置）→ ② 等真实 ACK → ③ 收尾口语。"""
         self.provider.begin_turn()
-        tools = self.bridge.openai_tools(card=card)
-        reason = getattr(tool_plan, "reason", None) if tool_plan else None
-        allow = _INTENT_TOOL_ALLOW.get(str(reason or ""))
-        if allow and tools:
-            tools = [t for t in tools if (t.get("function") or {}).get("name") in allow]
+        tools = filter_tools_for_plan(self.bridge.openai_tools(card=card), tool_plan)
         if not tools:
-            text = await self.provider.chat(_stringify_messages(messages))
+            # 保留多模态 content（list）；勿 stringify 成 JSON 字符串，否则模型完全看不到图
+            text = await self.provider.chat(messages)
             return text, [], [{"mode": "direct_no_tools", "raw_response": text}]
 
         max_rounds = int(self.tools_cfg.get("max_rounds") or 3)
@@ -223,7 +220,29 @@ class ToolLoopRunner:
                 )
             trace.append(round_entry)
 
-            # 禁言/提醒等已执行：立刻进人设收尾，勿再挂工具（防 mute 失败后乱调 setu）
+            # search 语义失败：提示下一轮换参再调，避免直接空聊收尾
+            if _jm_search_needs_retry(round_entry) and round_idx + 1 < max_rounds:
+                working.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "jmcomic_search 未成功：请立刻用具体标签再调 jmcomic_search"
+                            "（如全彩、中文），禁止再用「随机/随便」；有结果后再 download。"
+                            "不要只口语收尾。"
+                        ),
+                    }
+                )
+            elif _jm_search_ready_to_download(round_entry) and round_idx + 1 < max_rounds:
+                working.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "jmcomic_search 已有结果列表：请立刻从中选一个 ID 调 jmcomic_download，"
+                            "不要只口语/发表情收尾。对方要的是本子文件。"
+                        ),
+                    }
+                )
+
             if any(n in _TERMINAL_INTENT_TOOLS for n in used):
                 working.append(
                     {
@@ -349,7 +368,15 @@ class ToolLoopRunner:
             else 1
         )
         delay = float(self.tools_cfg.get("media_retry_delay_sec") or 1.5)
-        if name in _MEDIA_RETRY_TOOLS and retries > 0 and _tool_result_failed(result):
+        # 超时未确认：后台可能仍在跑，禁止立刻同参重试（易重复发）
+        # 语义失败（无效标签等）也不重试同参
+        if (
+            name in _MEDIA_RETRY_TOOLS
+            and retries > 0
+            and _tool_result_failed(result)
+            and not _ack_is_timeout(result)
+            and not _ack_is_semantic_reject(result)
+        ):
             for attempt in range(1, retries + 1):
                 logger.warning(
                     "companion 媒体工具失败将重试 名称=%s 第%s/%s次",
@@ -437,3 +464,52 @@ def _stringify_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 def _tool_result_failed(text: str) -> bool:
     return tool_failed(text)
+
+
+def _ack_is_timeout(text: str) -> bool:
+    raw = text or ""
+    if "执行超时" in raw or "结果未确认" in raw:
+        return True
+    ack = parse_tool_ack(raw) or {}
+    summary = str(ack.get("summary") or "")
+    detail = str(ack.get("detail") or "")
+    return "执行超时" in summary or "执行超时" in detail or "结果未确认" in summary
+
+
+def _ack_is_semantic_reject(text: str) -> bool:
+    raw = text or ""
+    markers = ("不是有效标签", "未找到结果", "请换具体")
+    if any(m in raw for m in markers):
+        return True
+    ack = parse_tool_ack(raw) or {}
+    blob = f"{ack.get('summary') or ''}{ack.get('detail') or ''}"
+    return any(m in blob for m in markers)
+
+
+def _jm_search_needs_retry(round_entry: dict[str, Any]) -> bool:
+    for tc in round_entry.get("tool_calls") or []:
+        if (tc.get("name") or "") != "jmcomic_search":
+            continue
+        ack = tc.get("ack") or {}
+        if ack.get("ok"):
+            continue
+        blob = f"{ack.get('summary') or ''}{ack.get('detail') or ''}{tc.get('result') or ''}"
+        if _ack_is_semantic_reject(blob):
+            return True
+    return False
+
+
+def _jm_search_ready_to_download(round_entry: dict[str, Any]) -> bool:
+    """本轮 search 成功且回执里已有 JM ID → 应继续 download。"""
+    import re
+
+    for tc in round_entry.get("tool_calls") or []:
+        if (tc.get("name") or "") != "jmcomic_search":
+            continue
+        ack = tc.get("ack") or {}
+        if not ack.get("ok"):
+            continue
+        blob = f"{ack.get('detail') or ''}{tc.get('result') or ''}"
+        if re.search(r"JM\d{4,}|\b\d{5,}\b", blob):
+            return True
+    return False

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 from collections import deque
@@ -12,6 +13,8 @@ from .index import StickerItem, load_sticker_index
 from .limits import sticker_max_file_bytes
 from .stats import StickerStats
 from .tags import DEFAULT_TAGS, INTENT_FALLBACKS, glossary_for, merge_allow_tags
+
+logger = logging.getLogger("astrbot")
 
 
 @dataclass
@@ -141,19 +144,31 @@ class StickerPicker:
         recent_same = sum(1 for x in recent if x == intent_n)
 
         def score(it: StickerItem) -> float:
-            tag_score = 1.0 if it.primary_tag == intent_n else 0.6
-            form_score = 1.0 if it.form == form else 0.75
+            # 近义回退：0.85；扁平库存 form=shared，应对任意 active_form 满分
+            tag_score = 1.0 if it.primary_tag == intent_n else 0.85
+            form_score = 1.0 if it.form in (form, "shared") else 0.7
             freshness = 1.0
             if recent_same >= 2:
-                freshness = 0.55
+                freshness = 0.7
             elif recent_same == 1:
-                freshness = 0.75
+                freshness = 0.85
             return tag_score * form_score * max(0.01, it.weight) * freshness
 
         scored = sorted(((score(it), it) for it in cands), key=lambda x: x[0], reverse=True)
         min_score = float(self.config.get("min_match_score") or 0.55)
-        scored = [(s, it) for s, it in scored if s >= min_score]
-        if not scored:
+        above = [(s, it) for s, it in scored if s >= min_score]
+        if above:
+            scored = above
+        elif scored:
+            # 空桶近义回退等：勿因阈值卡死成 veto，仍发最高分候选
+            logger.info(
+                "companion 表情包 低于阈值仍选用 intent=%s best=%.2f min=%.2f",
+                intent_n,
+                scored[0][0],
+                min_score,
+            )
+            scored = scored[:1]
+        else:
             self.stats.record("veto", intent_n)
             return PickResult(stage="veto", intent=intent_n, score=0.0)
 

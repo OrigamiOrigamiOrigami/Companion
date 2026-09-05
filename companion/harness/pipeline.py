@@ -34,7 +34,6 @@ from ..reminders import ReminderScheduler, ReminderStore
 from ..stickers.picker import StickerPicker
 from ..tools.adapters.handlers import (
     bind_member_cards,
-    bind_mute_config,
     bind_reminder_scheduler,
 )
 from ..tools.bridge import ToolBridge
@@ -99,6 +98,9 @@ class HarnessPipeline:
         self.private_debouncer = PrivateDebouncer()
         self._turn_epoch: dict[str, int] = {}
         self._busy_tip_at: dict[str, float] = {}
+        # 频道最近媒体工具族：jmcomic / setu → 供「再来一个」接续提示
+        self._channel_media_sticky: dict[str, tuple[float, str]] = {}
+        self._media_sticky_ttl_sec = 45 * 60
 
         stickers_cfg = config.get("stickers") or {}
         override = stickers_cfg.get("data_override_dir") or os.path.join(
@@ -143,7 +145,6 @@ class HarnessPipeline:
             compose_fn=self._compose_reminder_line,
         )
         bind_reminder_scheduler(self.reminders)
-        bind_mute_config(config)
         bind_member_cards(self.member_cards)
 
     def start_background(self) -> None:
@@ -233,6 +234,8 @@ class HarnessPipeline:
             f"续聊=关(no-op)\n"
             f"私聊合并：{debounce_ms}ms"
             f"{'（自适应夹紧）' if turn_cfg.get('adaptive_debounce', True) else ''}\n"
+            f"私聊解析链静音："
+            f"{'开' if (self.config.get('decide') or {}).get('silence_parser_links', True) else '关'}\n"
             f"并发：同频道容量={conc.get('per_group', 1)} · "
             f"队列上限={conc.get('queue_max_per_group', 3)} · "
             f"超时={conc.get('queue_timeout_sec', 60)}s\n"
@@ -877,6 +880,25 @@ class HarnessPipeline:
                     )
 
             tool_plan = plan_tool_order(perception, state, decision, self.config)
+            from ..tools.continuation_intent import (
+                continuation_tool_hint,
+                is_another_one_intent,
+            )
+
+            if is_another_one_intent(perception.text or ""):
+                family = self._resolve_media_sticky(perception)
+                sticky_hint = continuation_tool_hint(family)
+                if sticky_hint:
+                    tool_plan.hint = (
+                        f"{tool_plan.hint} {sticky_hint}".strip()
+                        if tool_plan.hint
+                        else sticky_hint
+                    )
+                    logger.info(
+                        "companion 接续提示 family=%s channel=%s",
+                        family,
+                        perception.channel,
+                    )
             preface_sink: list[str] = []
             typed_once = {"done": False}
             at_name_map: dict[str, str] = {}
@@ -1026,6 +1048,7 @@ class HarnessPipeline:
                         form=state.active_form,
                         tools=result.tools_used,
                     )
+                    self._remember_media_sticky(perception.channel, result.tools_used)
             except Exception as e:
                 logger.warning("情景记忆写入失败: %s", e)
 
@@ -1347,6 +1370,62 @@ class HarnessPipeline:
     def _group_tape_enabled(self) -> bool:
         return bool((self.config.get("memory") or {}).get("group_tape_enabled", True))
 
+    def _remember_media_sticky(self, channel: str, tools: list[str] | None) -> None:
+        from ..tools.continuation_intent import media_family_from_tools
+
+        family = media_family_from_tools(tools)
+        if not family or not channel:
+            return
+        self._channel_media_sticky[channel] = (time.time(), family)
+
+    def _resolve_media_sticky(self, perception: Perception) -> str | None:
+        """频道粘性优先；重启后可从近期 episodic / group tape 的 tools 回填。"""
+        from ..tools.continuation_intent import media_family_from_tools
+
+        channel = perception.channel or ""
+        hit = self._channel_media_sticky.get(channel)
+        now = time.time()
+        ttl = float(self._media_sticky_ttl_sec)
+        if hit and now - float(hit[0]) <= ttl:
+            return hit[1]
+
+        for e in self.memory.recent_episodic(perception.user_id, channel, n=8):
+            family = media_family_from_tools(
+                [x for x in str(e.get("tools") or "").split(",") if x]
+            )
+            if family:
+                self._channel_media_sticky[channel] = (now, family)
+                return family
+
+        if perception.group_id and self._group_tape_enabled():
+            for e in self.memory.recent_group_tape(str(perception.group_id), n=12):
+                family = media_family_from_tools(
+                    [x for x in str(e.get("tools") or "").split(",") if x]
+                )
+                if family:
+                    self._channel_media_sticky[channel] = (now, family)
+                    return family
+
+        # 弱回退：近聊出现本子/涩图词
+        nearby = self.memory.nearby_context(
+            perception.user_id,
+            channel,
+            before_n=5,
+            after_n=2,
+            current_text=perception.text or "",
+        )
+        blob = " ".join(
+            (x.get("text") or "") + " " + (x.get("reply") or "")
+            for x in (nearby.get("before") or [])
+        ).lower()
+        if any(k in blob for k in ("本子", "禁漫", "jmcomic", "jm")):
+            self._channel_media_sticky[channel] = (now, "jmcomic")
+            return "jmcomic"
+        if any(k in blob for k in ("涩图", "色图", "setu", "来点")):
+            self._channel_media_sticky[channel] = (now, "setu")
+            return "setu"
+        return None
+
     @staticmethod
     def _observation_text(perception: Perception) -> tuple[str, str]:
         text = (perception.text[:200] or perception.media_note[:200] or "")
@@ -1438,6 +1517,8 @@ class HarnessPipeline:
                 tape_item["reply"] = reply[:120]
             elif observed:
                 tape_item["observed"] = True
+            if tools:
+                tape_item["tools"] = ",".join(tools[:5])
             self.memory.append_group_tape(str(perception.group_id), tape_item)
 
         write_episodic = (not perception.group_id) or bool(reply)
