@@ -13,9 +13,15 @@
     "speech_triggers": {
       "mentioned": true,
       "soft_mention": true,
-      "_keep_going_comment": "【暂未生效 / no-op】打开也不会无唤醒词接话",
-      "keep_going": false
-    }
+      "keep_going": true
+    },
+    "keep_going_window_sec": 60,
+    "keep_going_max": 1,
+    "keep_going_allow_tools": false,
+    "keep_going_ack_words": [
+      "嗯", "嗯嗯", "好", "好的", "好哦", "行", "ok", "OK",
+      "收到", "懂了", "知道了", "1", "哈哈哈", "哈", "草", "dd"
+    ]
   },
 
   "turn": {
@@ -143,7 +149,21 @@
     "slow_timeout_sec": 120,
     "parallel_max": 2,
     "allowlist": [],
-    "denylist": ["web_search_tavily", "web_search_bocha"],
+    "denylist": [
+      "web_search_tavily",
+      "web_search_bocha",
+      "llm_set_group_kick",
+      "llm_set_group_block",
+      "llm_set_essence_msg",
+      "llm_get_essence_msg_list",
+      "llm_set_group_name",
+      "llm_set_group_portrait",
+      "llm_send_group_notice",
+      "llm_get_group_notice",
+      "llm_upload_group_file",
+      "llm_delete_group_file",
+      "llm_view_group_file"
+    ],
     "persona_outro": true,
     "adapters": {
       "music": true,
@@ -170,7 +190,8 @@
   "admins": {
     "super": [],
     "operators": [],
-    "groups": {}
+    "groups": {},
+    "owner_callname": "阿漂"
   },
 
   "voice": {

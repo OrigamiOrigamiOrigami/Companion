@@ -33,7 +33,27 @@ SINGLE_SHOT_TOOLS = frozenset(
         "schedule_reminder",
         "cancel_reminder",
         "mention_group_member",
+        # qqadmin 透传（常用群管）
+        "llm_set_group_ban",
+        "llm_set_group_whole_ban",
+        "llm_set_group_card",
+        "llm_set_group_special_title",
     }
+)
+
+# qqadmin 其余 LLM 工具默认黑名单（指令仍可用；踢人/拉黑/文件等勿给人设乱调）
+QQADMIN_LLM_DENYLIST = (
+    "llm_set_group_kick",
+    "llm_set_group_block",
+    "llm_set_essence_msg",
+    "llm_get_essence_msg_list",
+    "llm_set_group_name",
+    "llm_set_group_portrait",
+    "llm_send_group_notice",
+    "llm_get_group_notice",
+    "llm_upload_group_file",
+    "llm_delete_group_file",
+    "llm_view_group_file",
 )
 
 
@@ -430,9 +450,49 @@ class ToolBridge:
             pass
 
         result = handler(**kwargs)
+        if inspect.isasyncgen(result):
+            return await _drain_async_gen(result)
         if asyncio.iscoroutine(result):
-            return await result
+            result = await result
+        if inspect.isgenerator(result):
+            return _drain_sync_gen(result)
         return result
+
+
+def _coerce_yielded(item: Any) -> str:
+    if item is None:
+        return ""
+    if isinstance(item, str):
+        return item.strip()
+    text = getattr(item, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    if hasattr(item, "get_plain_text"):
+        try:
+            plain = (item.get_plain_text() or "").strip()
+            if plain:
+                return plain
+        except Exception:
+            pass
+    return str(item).strip()
+
+
+async def _drain_async_gen(gen: Any) -> str:
+    parts: list[str] = []
+    async for item in gen:
+        chunk = _coerce_yielded(item)
+        if chunk:
+            parts.append(chunk)
+    return "\n".join(parts) if parts else "（工具已执行，无文本结果）"
+
+
+def _drain_sync_gen(gen: Any) -> str:
+    parts: list[str] = []
+    for item in gen:
+        chunk = _coerce_yielded(item)
+        if chunk:
+            parts.append(chunk)
+    return "\n".join(parts) if parts else "（工具已执行，无文本结果）"
 
 
 def _is_slow_tool(name: str) -> bool:

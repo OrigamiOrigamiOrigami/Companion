@@ -17,6 +17,18 @@ DELIVERED_TOOLS = frozenset(
     }
 )
 
+# 群管等：ok 即副作用已生效（不是发图）；勿让 delivered=false 误导模型
+EFFECT_TOOLS = frozenset(
+    {
+        "llm_set_group_ban",
+        "llm_set_group_whole_ban",
+        "llm_set_group_card",
+        "llm_set_group_special_title",
+        "schedule_reminder",
+        "cancel_reminder",
+    }
+)
+
 _FAIL_MARKERS = (
     "执行超时",
     "执行失败",
@@ -192,6 +204,10 @@ def _infer_delivered(tool: str, raw: str, *, ok: bool, plugin_sent: bool) -> boo
     if tool == "mention_group_member":
         return bool(plugin_sent)
 
+    if tool in EFFECT_TOOLS:
+        # 禁言/改名片/提醒等：成功即已生效，与是否往聊天「发媒体」无关
+        return bool(text) and not _has_fail_marker(text)
+
     if tool in DELIVERED_TOOLS:
         return plugin_sent
 
@@ -220,6 +236,8 @@ def _summarize(tool: str, raw: str, *, ok: bool, delivered: bool) -> str:
             return "识图结果已发到聊天"
         if tool == "play_song_by_name":
             return "歌曲已开始播放"
+        if tool in EFFECT_TOOLS:
+            return raw[:200] if raw else f"{tool} 已生效"
     # ok 但未确认送达（兜底；companion 对 download 已 wait 到终态）
     if tool == "setu_send_image":
         return "发图未确认送达"
@@ -231,6 +249,8 @@ def _summarize(tool: str, raw: str, *, ok: bool, delivered: bool) -> str:
         ):
             return "搜索有结果，请选 ID 调用 jmcomic_download"
         return "搜索/查询已执行"
+    if tool in EFFECT_TOOLS:
+        return (raw[:200] if raw else f"{tool} 已执行") + "（已生效，勿说失败）"
     if raw:
         return raw[:200]
     return f"{tool} 已完成"

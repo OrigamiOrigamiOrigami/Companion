@@ -7,9 +7,39 @@ from dataclasses import dataclass
 
 from astrbot.api.event import AstrMessageEvent
 
-from ..variants import pick_variant
+from .poke_plan import (
+    POKE_MODE_ANTIPOKE,
+    POKE_MODE_LLM,
+    POKE_MODE_SPEECH,
+    POKE_MODE_SPEECH_POKE,
+    PokePlan,
+    normalize_poke_weights,
+    pick_poke_mode,
+    pick_poke_reply,
+    pick_poke_sticker_intent,
+    plan_poke_reaction,
+)
 
 logger = logging.getLogger("astrbot")
+
+__all__ = [
+    "POKE_MODE_ANTIPOKE",
+    "POKE_MODE_LLM",
+    "POKE_MODE_SPEECH",
+    "POKE_MODE_SPEECH_POKE",
+    "PokeInfo",
+    "PokePlan",
+    "is_poke_to_bot",
+    "normalize_poke_weights",
+    "parse_poke",
+    "pick_poke_mode",
+    "pick_poke_reply",
+    "pick_poke_sticker_intent",
+    "plan_poke_reaction",
+    "send_poke_to_user",
+    "send_poke_with_pause",
+    "send_pokes_with_pause",
+]
 
 
 @dataclass
@@ -71,29 +101,6 @@ def is_poke_to_bot(event: AstrMessageEvent) -> bool:
     return bool(info and info.to_self)
 
 
-def pick_poke_reply(*, familiarity: str, is_private: bool) -> str:
-    fam = (familiarity or "stranger").lower()
-    if is_private:
-        pool = "poke_private"
-    elif fam in ("trusted", "close", "intimate"):
-        pool = "poke_warm"
-    elif fam in ("warming", "friend"):
-        pool = "poke_playful"
-    else:
-        pool = "poke_playful"
-    text = pick_variant(pool)
-    return text or pick_variant("poke_playful") or "诶？戳我干嘛啦~"
-
-
-def pick_poke_sticker_intent(*, familiarity: str, is_private: bool) -> str:
-    fam = (familiarity or "stranger").lower()
-    if is_private:
-        return pick_variant("poke_sticker_private") or "shy"
-    if fam in ("trusted", "close", "intimate"):
-        return pick_variant("poke_sticker_warm") or "warm"
-    return pick_variant("poke_sticker_playful") or "playful"
-
-
 def _group_id(event: AstrMessageEvent) -> str | None:
     try:
         if hasattr(event, "get_group_id"):
@@ -149,3 +156,22 @@ async def send_poke_with_pause(
             lo, hi = hi, lo
         await asyncio.sleep(random.uniform(lo, hi) / 1000.0)
     return await send_poke_to_user(event, user_id=user_id, group_id=group_id)
+
+
+async def send_pokes_with_pause(
+    event: AstrMessageEvent,
+    *,
+    user_id: str,
+    group_id: str | None = None,
+    times: int = 1,
+    delay_ms: tuple[int, int] = (400, 1200),
+) -> int:
+    """连戳 times 次；返回成功次数。"""
+    n = max(0, int(times))
+    ok = 0
+    for _ in range(n):
+        if await send_poke_with_pause(
+            event, user_id=user_id, group_id=group_id, delay_ms=delay_ms
+        ):
+            ok += 1
+    return ok

@@ -27,6 +27,40 @@ _CALLED_LINE_RE = re.compile(
     re.I,
 )
 
+# Claude / 伪工具 XML 泄漏（tools_disabled 时模型仍可能把调用写成正文）
+_XML_FUNCTION_CALLS_BLOCK_RE = re.compile(
+    r"<function_calls\b[^>]*>.*?</function_calls\s*>",
+    re.I | re.S,
+)
+_XML_INVOKE_BLOCK_RE = re.compile(
+    r"<invoke\b[^>]*>.*?</invoke\s*>",
+    re.I | re.S,
+)
+_XML_PARAMETER_BLOCK_RE = re.compile(
+    r"<parameter\b[^>]*>.*?</parameter\s*>",
+    re.I | re.S,
+)
+_XML_TOOL_CALL_BLOCK_RE = re.compile(
+    r"<tool_calls?\b[^>]*>.*?</tool_calls?\s*>",
+    re.I | re.S,
+)
+_XML_TOOL_ORPHAN_TAG_RE = re.compile(
+    r"</?(?:function_calls|function_call|invoke|parameter|tool_calls?)\b[^>]*/?>",
+    re.I,
+)
+
+
+def strip_tool_xml_leak(text: str) -> str:
+    """去掉模型写进正文的 function_calls / invoke XML（含残缺开标签）。"""
+    out = text or ""
+    out = _XML_FUNCTION_CALLS_BLOCK_RE.sub("", out)
+    out = _XML_TOOL_CALL_BLOCK_RE.sub("", out)
+    out = _XML_INVOKE_BLOCK_RE.sub("", out)
+    out = _XML_PARAMETER_BLOCK_RE.sub("", out)
+    out = _XML_TOOL_ORPHAN_TAG_RE.sub("", out)
+    return out
+
+
 # QQ 气泡不渲染 Markdown：先拆 **bold** / `code`，再视情况剥肢体旁白
 _MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _MD_BOLD_U_RE = re.compile(r"__(.+?)__")
@@ -53,6 +87,7 @@ def sanitize_outbound_text(text: str, *, strip_asterisk_actions: bool = False) -
     if not text:
         return ""
     out = sanitize_visible_text(text)
+    out = strip_tool_xml_leak(out)
     out = strip_markdown_noise(out)
     if strip_asterisk_actions:
         out = _ASTERISK_ACTION_RE.sub("", out)

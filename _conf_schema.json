@@ -133,9 +133,34 @@
     },
     "续聊触发": {
         "type": "bool",
-        "description": "【暂未生效】群内无唤醒词续聊（keep_going）",
-        "hint": "reserved / no-op：打开也不会接话；唤起请用 @ 或唤醒词",
+        "description": "群内短窗续聊：硬@/唤醒词回复后，同一人在窗口内可不唤醒再接一句",
+        "hint": "默认开；确认词静音；详见 keep_going 窗口/上限",
+        "default": true
+    },
+    "续聊窗口秒": {
+        "type": "int",
+        "description": "续聊短窗时长（秒）",
+        "hint": "从 bot 发出唤醒回复起算；续聊发出后若未达上限会刷新",
+        "default": 60
+    },
+    "续聊上限": {
+        "type": "int",
+        "description": "每轮唤醒最多续聊次数",
+        "hint": "默认 1；达上限须再 @ 或唤醒词",
+        "default": 1
+    },
+    "续聊允许工具": {
+        "type": "bool",
+        "description": "续聊回合是否挂工具",
+        "hint": "默认关，避免跟句拖出搜索/本子等",
         "default": false
+    },
+    "续聊确认词": {
+        "type": "list",
+        "description": "整句匹配则静音且不耗续聊额度",
+        "hint": "精确匹配（大小写不敏感），如 嗯/好/懂了",
+        "items": { "type": "string" },
+        "default": ["嗯", "嗯嗯", "好", "好的", "好哦", "行", "ok", "OK", "收到", "懂了", "知道了", "1", "哈哈哈", "哈", "草", "dd"]
     },
     "私聊合并窗口毫秒": {
         "type": "int",
@@ -474,8 +499,14 @@
         "type": "list",
         "items": { "type": "string" },
         "description": "超管 QQ 号（面板配置）。拥有全部管理权限，可用命令增删管理员",
-        "hint": "至少填一个自己的号；超管可用 /companion admin add|remove",
+        "hint": "至少填一个自己的号；这些人设上就是「阿漂／漂泊者」（见「超管称呼」）",
         "default": []
+    },
+    "超管称呼": {
+        "type": "string",
+        "description": "超管在人设里的称呼（默认阿漂）",
+        "hint": "群名片可以是别的字；注入时会标明超管QQ=阿漂，避免认错人",
+        "default": "阿漂"
     },
     "管理员QQ号": {
         "type": "list",
@@ -483,6 +514,17 @@
         "description": "普通管理员 QQ 号（也可由超管用命令维护）",
         "hint": "有上传表情等管理权限，不能改超管/管理员名单",
         "default": []
+    },
+
+    "戳一戳入站冷却秒": {
+        "type": "float",
+        "description": "同一人连续戳 Bot 的冷却（秒）",
+        "default": 4
+    },
+    "戳一戳反戳最大次数": {
+        "type": "int",
+        "description": "被戳连戳反击的上限（2～5，默认 3）",
+        "default": 3
     },
 
     "启用语音合成": {

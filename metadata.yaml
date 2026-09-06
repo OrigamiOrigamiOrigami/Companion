@@ -1,5 +1,5 @@
 name: companion
-version: "0.3.7"
+version: "0.3.9"
 author: Origami
 desc: 社交真实感角色插件；人设外置为角色卡（当前默认 Aemeath）。
 help: 使用 /companion status 查看状态。详见 README.md。

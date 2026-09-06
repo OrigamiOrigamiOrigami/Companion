@@ -43,6 +43,7 @@ from ..variants import pick_variant
 from .decide import decide
 from .express import Expressor
 from .form_resolver import FormResolver
+from .keep_going import apply_after_outbound, keep_going_cfg
 from .outbound_sanitize import (
     finalize_outbound_bubbles,
     resolve_style_limits,
@@ -50,7 +51,7 @@ from .outbound_sanitize import (
 )
 from .outbound_at import send_bubble_with_ats, strip_at_markers
 from .perceive import perceive
-from .poke import parse_poke, pick_poke_reply, pick_poke_sticker_intent, send_poke_with_pause
+from .poke import parse_poke, plan_poke_reaction, send_pokes_with_pause
 from .presence import is_night_hours, typing_delay_ms
 from .private_debounce import PrivateDebouncer
 from .rate_limit import TurnRateLimiter
@@ -231,7 +232,10 @@ class HarnessPipeline:
             "—— 生效旋钮 ——\n"
             f"唤起：硬@={'开' if triggers.get('mentioned', True) else '关'} · "
             f"软唤醒={'开' if triggers.get('soft_mention', True) else '关'} · "
-            f"续聊=关(no-op)\n"
+            f"续聊={'开' if triggers.get('keep_going', True) else '关'}"
+            f"（窗{int(group_cfg.get('keep_going_window_sec') or 60)}s"
+            f"·上限{int(group_cfg.get('keep_going_max') or 1)}"
+            f"·工具={'开' if group_cfg.get('keep_going_allow_tools') else '关'}）\n"
             f"私聊合并：{debounce_ms}ms"
             f"{'（自适应夹紧）' if turn_cfg.get('adaptive_debounce', True) else ''}\n"
             f"私聊解析链静音："
@@ -240,7 +244,7 @@ class HarnessPipeline:
             f"队列上限={conc.get('queue_max_per_group', 3)} · "
             f"超时={conc.get('queue_timeout_sec', 60)}s\n"
             "—— 暂未生效（面板可改，行为不变）——\n"
-            "silence_prior / familiarity_threshold / llm_assist / keep_going / "
+            "silence_prior / familiarity_threshold / llm_assist / "
             "intent_boost / form_rate_multiplier"
         )
 
@@ -578,6 +582,51 @@ class HarnessPipeline:
         self._states[key].familiarity = portrait.get("familiarity") or "stranger"
         return self._states[key]
 
+    def _note_keep_going_after_send(
+        self,
+        perception: Perception,
+        decision: Decision,
+        state: InnerState,
+    ) -> None:
+        if not perception.group_id:
+            return
+        kg = keep_going_cfg(self.config)
+        apply_after_outbound(
+            state,
+            decision_reason=decision.reason,
+            is_private=False,
+            now=time.time(),
+            window_sec=int(kg["window_sec"]),
+            max_n=int(kg["max"]),
+        )
+        logger.info(
+            "companion keep_going 窗用户=%s until=%.0f used=%s reason=%s",
+            perception.user_id,
+            float(state.conversation_window_until or 0),
+            int(state.keep_going_used or 0),
+            decision.reason,
+        )
+
+    def _ensure_owner_alias(self, group_id: str, user_id: str) -> None:
+        """超管发言时把「阿漂」写进群友卡外号，方便 @ 与注入对齐。"""
+        from .owner_identity import is_owner_user, owner_callname
+
+        if not is_owner_user(user_id, self.config):
+            return
+        call = owner_callname(self.config)
+        card = self.member_cards.load(group_id, user_id)
+        aliases = [a for a in (card.get("aliases") or []) if a]
+        name = (card.get("display_name") or "").strip()
+        if call == name or call in aliases:
+            return
+        aliases.append(call)
+        card["aliases"] = aliases[-12:]
+        notes = (card.get("notes") or "").strip()
+        tag = f"人设称呼={call}（超管）"
+        if tag not in notes:
+            card["notes"] = f"{notes}；{tag}".strip("；") if notes else tag
+        self.member_cards.save(group_id, user_id, card)
+
     async def handle_poke(self, event: AstrMessageEvent):
         info = parse_poke(event)
         if info is None or not info.to_self:
@@ -585,9 +634,13 @@ class HarnessPipeline:
         if info.group_id and self._group_enabled.get(str(info.group_id), True) is False:
             return None
 
+        poke_cfg = self.config.get("poke") or {}
+        if poke_cfg.get("enabled", True) is False:
+            return None
+
         cd_key = f"{info.group_id or 'private'}:{info.sender_id}"
         cd = float(
-            (self.config.get("poke") or {}).get("incoming_cooldown_sec")
+            poke_cfg.get("incoming_cooldown_sec")
             or (self.config.get("group") or {}).get("poke_cooldown_sec")
             or 4
         )
@@ -599,16 +652,33 @@ class HarnessPipeline:
         channel = "private" if not info.group_id else f"group:{info.group_id}"
         state = self._state(info.sender_id, channel)
         is_private = not bool(info.group_id)
-        bubble = pick_poke_reply(familiarity=state.familiarity, is_private=is_private)
-        intent = pick_poke_sticker_intent(familiarity=state.familiarity, is_private=is_private)
+        plan = plan_poke_reaction(
+            familiarity=state.familiarity,
+            is_private=is_private,
+            poke_cfg=poke_cfg,
+        )
+        bubble = plan.bubble
+        intent = plan.sticker_intent
+        if plan.use_llm:
+            try:
+                bubble = await self._compose_poke_line(
+                    familiarity=state.familiarity,
+                    is_private=is_private,
+                ) or bubble
+            except Exception as e:
+                logger.warning("companion 戳一戳短 LLM 失败: %s", e)
+
         allow_tags = list(self.card.companion_ext.get("sticker_tags") or self.stickers.allow_tags)
         if intent not in allow_tags:
             intent = self._fallback_sticker_intent(intent, allow_tags, state)
 
+        poke_times = max(0, int(plan.poke_times))
         result = ExpressResult(
-            bubbles=[bubble],
+            bubbles=[bubble] if bubble else [],
             sticker_wanted=True,
             sticker_intent=intent,
+            poke_wanted=poke_times > 0,
+            poke_times=poke_times,
         )
         picked = self.stickers.pick_detailed(
             wanted=True, intent=intent, active_form=state.active_form
@@ -619,16 +689,14 @@ class HarnessPipeline:
             result.sticker_id = picked.sticker_id
             result.sticker_path = picked.path
 
-        poke_cfg = self.config.get("poke") or {}
-        if random.random() < float(poke_cfg.get("counter_poke_prob") or 0.35):
-            result.poke_wanted = True
-
         logger.info(
-            "companion 戳一戳 用户=%s 群=%s 熟悉=%s 回复=%s 表情=%s",
+            "companion 戳一戳 模式=%s 用户=%s 群=%s 熟悉=%s 回戳=%s 回复=%s 表情=%s",
+            plan.mode,
             info.sender_id,
             info.group_id or "-",
             state.familiarity,
-            bubble[:40],
+            poke_times,
+            (bubble or "")[:40],
             intent,
         )
         await self._send(
@@ -644,6 +712,30 @@ class HarnessPipeline:
         except Exception:
             pass
         return None
+
+    async def _compose_poke_line(self, *, familiarity: str, is_private: bool) -> str:
+        """被戳短反应：一句人设口语；失败由调用方回落变体池。"""
+        from .outbound_sanitize import sanitize_outbound_text
+
+        name = self.card.display_name or self.card.id
+        tone = (self.card.tone_reference or "").strip()[:300]
+        where = "私聊" if is_private else "群聊"
+        system = (
+            f"你是{name}。对方在{where}戳了你一下（QQ 戳一戳）。"
+            f"熟悉度大约是 {familiarity}。"
+            "用一两句极短口语反应（可俏皮/嗔怪/害羞），像真人被戳；"
+            "勿 Markdown、勿列点、勿自称 AI、勿提系统/工具/戳一戳机制。"
+            "只输出要发到聊天的正文，不要 emotion/sticker 控制行。"
+        )
+        if tone:
+            system = f"{system}\n【语气参考】\n{tone}"
+        raw = await self.provider.chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": "对方戳了你一下，回一句。"},
+            ]
+        )
+        return sanitize_outbound_text(raw or "", strip_asterisk_actions=True)[:80]
 
     async def handle(self, event: AstrMessageEvent, trigger: str):
         perception = perceive(
@@ -768,7 +860,7 @@ class HarnessPipeline:
                 if perception.is_private and not self._epoch_valid(perception.channel, my_epoch):
                     logger.info("companion epoch 作废 night_afk channel=%s", perception.channel)
                     return None
-                return await self._send(
+                sent = await self._send(
                     event,
                     result,
                     state=state,
@@ -777,6 +869,8 @@ class HarnessPipeline:
                     reply_quote_id=None if reply_quote["used"] else reply_quote["id"],
                     reply_quote_state=reply_quote,
                 )
+                self._note_keep_going_after_send(perception, decision, state)
+                return sent
 
             group_cfg = self.config.get("group") or {}
             dedupe_sec = float(group_cfg.get("dedupe_sec") or 45)
@@ -785,12 +879,14 @@ class HarnessPipeline:
                 if group_cfg.get("user_cooldown_sec") is not None
                 else (group_cfg.get("cooldown_sec") or 8)
             )
+            # 续聊跟在刚说过的话后面，跳过同用户冷却，否则短窗内永远接不上
+            effective_user_cd = 0.0 if decision.reason == "keep_going" else user_cd
             rate_hit = self.rate_limiter.check(
                 channel=perception.channel,
                 user_id=perception.user_id,
                 text=perception.text or "",
                 dedupe_sec=dedupe_sec,
-                user_cooldown_sec=user_cd,
+                user_cooldown_sec=effective_user_cd,
             )
             if rate_hit:
                 logger.info(
@@ -1060,7 +1156,7 @@ class HarnessPipeline:
                 logger.info("companion epoch 作废 pre-send channel=%s", perception.channel)
                 return None
 
-            return await self._send(
+            sent = await self._send(
                 event,
                 result,
                 state=state,
@@ -1072,6 +1168,8 @@ class HarnessPipeline:
                 reply_quote_id=None if reply_quote["used"] else reply_quote["id"],
                 reply_quote_state=reply_quote,
             )
+            self._note_keep_going_after_send(perception, decision, state)
+            return sent
         finally:
             if gate_on:
                 await self.turn_gate.release(gate_key)
@@ -1258,7 +1356,10 @@ class HarnessPipeline:
         poke_cfg = self.config.get("poke") or {}
         if poke_cfg.get("enabled", True) is False:
             return
-        if not result.poke_wanted or result.degraded:
+        times = int(getattr(result, "poke_times", 0) or 0)
+        if times <= 0 and result.poke_wanted and not result.degraded:
+            times = 1
+        if times <= 0 or result.degraded:
             return
         if not user_id:
             return
@@ -1272,13 +1373,15 @@ class HarnessPipeline:
             delay_ms = (int(delay[0]), int(delay[1]))
         else:
             delay_ms = (400, 1200)
-        ok = await send_poke_with_pause(
+        times = min(times, int(poke_cfg.get("antipoke_max_times") or 3))
+        ok_n = await send_pokes_with_pause(
             event,
             user_id=user_id,
             group_id=group_id,
+            times=times,
             delay_ms=delay_ms,
         )
-        if ok:
+        if ok_n > 0:
             self._poke_cd[cd_key] = now + cd
 
     async def _typing_delay(self, bubbles: list[str]) -> None:
@@ -1502,6 +1605,7 @@ class HarnessPipeline:
                     perception.user_id,
                     perception.sender_name,
                 )
+                self._ensure_owner_alias(str(perception.group_id), perception.user_id)
             except Exception as e:
                 logger.warning("群友卡更新失败: %s", e)
 

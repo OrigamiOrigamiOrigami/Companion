@@ -3,7 +3,7 @@
 AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeath（爱弥斯）**。
 旧卡 `characters/daniya/` 暂留，定稿后可删。
 
-**当前版本：0.3.7**
+**当前版本：0.3.9**
 
 ## 文档
 
@@ -19,7 +19,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 | 块 | 说明 |
 |----|------|
 | `active_character` | 默认角色卡 ID（`Aemeath`） |
-| `group` | 群沉默、冷却、同文去重、speech_triggers（`keep_going` **暂未生效**） |
+| `group` | 群沉默、冷却、同文去重、speech_triggers（含 **keep_going** 短窗续聊） |
 | `turn` | 私聊合并窗口（**已生效**） |
 | `decide` | `silence_parser_links`（**已生效**）；`familiarity_threshold` / `llm_assist`（**暂未生效 / reserved**） |
 | `reminders` | 延时提醒（到点 @ + 可选戳一戳） |
@@ -35,7 +35,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| `user_cooldown_sec` | 8 | 同一人短窗冷却，命中则旁观入库、不调 LLM |
+| `user_cooldown_sec` | 8 | 同一人短窗冷却，命中则旁观入库、不调 LLM（**keep_going 回合跳过**） |
 | `dedupe_sec` | 45 | 同一人同文去重窗口 |
 | `cooldown_sec` | 6 | 兼容旧配置；`user_cooldown_sec` 未设时回落用它 |
 
@@ -53,6 +53,27 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 1. 目录：`data/plugins/companion`
 2. 面板启用 **companion**（旧 `daniya` 插件请禁用/删除）
 3. `/companion status`
+
+## 插件集成
+
+companion 通过「适配器包装」或「LLM 工具透传」对接其他插件；未安装/未启用则对应工具不会出现。面板 `tools.adapters.*` 可单独开关适配项。
+
+上游多为市场插件；下列带 ★ 的为本机改版。
+
+| 插件 | 上游 | 方式 | 能力 |
+|------|------|------|------|
+| [`jmcomic`](https://github.com/OrigamiOrigamiOrigami/astrbot_plugin_jmcomic) | 自维护 | 适配器 | 搜本 / 下本（PDF） |
+| `setu` | 自维护 | 适配器 | 按标签发插画 |
+| `image_search` | 自维护 | 适配器 | SauceNAO / Ascii2D / Google Lens 识图 |
+| [`astrbot_plugin_music`](https://github.com/Zhalslar/astrbot_plugin_music) ★ | [Zhalslar](https://github.com/Zhalslar/astrbot_plugin_music) | 原生工具（本机改版） | 点歌 `play_song_by_name` |
+| [`astrbot_plugin_qqadmin`](https://github.com/Zhalslar/astrbot_plugin_qqadmin) | [Zhalslar](https://github.com/Zhalslar/astrbot_plugin_qqadmin) | 透传 | 禁言/解禁、全员禁言、改名片、改头衔（其余 `llm_*` 默认黑名单；指令仍可用） |
+| [`astrbot_plugin_parser`](https://github.com/Zhalslar/astrbot_plugin_parser) ★ | [Zhalslar](https://github.com/Zhalslar/astrbot_plugin_parser) | 联动（本机改版） | 私聊分享链时 companion 默认静音（`decide.silence_parser_links`），把舞台留给解析插件 |
+
+**companion 内置（不依赖外部插件）**：延时提醒、群聊真 @。
+
+**可选 MCP**（`mcp_server.json`）：网页 fetch / 天气等；有 AstrBot 内置 `web_search_*` 时会隐藏重复的 MCP 搜索。
+
+群管细节见 [`docs/adr/0001-qqadmin-passthrough.md`](docs/adr/0001-qqadmin-passthrough.md)。
 
 ## 命令
 
@@ -93,12 +114,18 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 - 单次工具成功后会缓存，同轮重复调用返回「跳过/未再发送」
 - ACK 失败不自动重试；模型若自行再调会重新执行
-- 提醒 / @ 等管理类工具跑完即强制收尾，不再挂工具
+- 提醒 / @ / 群管（qqadmin 透传）等管理类工具跑完即强制收尾，不再挂工具
 
 ### 提醒
 
 - 自然语言「N 分钟后提醒我…」→ `schedule_reminder`（可取消）
 - 到点主动 @，可选戳一戳；**文案走短人设 LLM**（失败回落变体池）
+
+### 群管（qqadmin）
+
+- 依赖已安装的 `astrbot_plugin_qqadmin`；companion **透传**其 LLM 工具
+- 默认可见：禁言/解禁、全员禁言、改名片、改头衔；踢人/拉黑/文件等进黑名单（指令仍可用）
+- 鉴权在 qqadmin；详见 `docs/adr/0001-qqadmin-passthrough.md`
 
 ### 群聊 @
 
@@ -121,10 +148,20 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 ### 戳一戳 / 语音
 
-- 入站戳一戳可短回；出站可按 `poke_wanted` 回戳
+- 入站戳一戳：按权重随机反应（说话+回戳 / 只说话 / 连戳反击 / 短 LLM），见 ADR-0002；不装 pokepro
+- 出站可按 `poke_wanted` / `poke_times` 回戳
 - 支持强制语音念白（与点歌意图区分）
 
 ## 更新记录
+
+### 0.3.9
+
+- 新增：群 `keep_going` 短窗续聊（同人、默认 60s/上限 1、确认词静音、默认不挂工具；见 ADR-0003）
+- 修复：出站剥离 `<function_calls>` / `<invoke>` 等伪工具 XML（续聊关工具时模型泄漏）
+
+### 0.3.8
+
+- 文档/配置：去掉已废弃的 B 站总结适配（bilivideo）；保留 parser「引用小程序不二次解析」
 
 ### 0.3.7
 
@@ -136,7 +173,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 ### 0.3.5
 
-- 配置对齐：面板标注 `keep_going` / `silence_prior` / `familiarity_threshold` / `llm_assist` / `intent_boost` / `form_rate_multiplier` 等为暂未生效
+- 配置对齐：面板标注 `silence_prior` / `familiarity_threshold` / `llm_assist` / `intent_boost` / `form_rate_multiplier` 等为暂未生效
 - 增强：`/伴侣 状态` 展示生效旋钮与表情空桶；`表情统计` 显示库存与空桶
 - 增强：补全 sticker 近义回退（空桶 shy/cute/thinking/reject 等可落到有图 tag）
 - 新增：情绪 tag `mock`（嘲笑）、`surprise`（惊讶）
@@ -155,7 +192,7 @@ AstrBot 社交角色插件。人设外置为角色卡；当前默认卡 **Aemeat
 
 - 新增：同频道 Express **FIFO 排队**（`queue_max_per_group` / `queue_timeout_sec`）；入队 busy 提示（短窗去重）
 - 新增：私聊 **Turn Aggregation**（`turn.debounce_ms`）+ **epoch 作废**过期未发出回复
-- 说明：`keep_going` 续聊仍为 no-op（无唤醒词不接话）；Decide 仅硬 @ / soft_mention / 私聊
+- 说明：Decide 唤起为硬 @ / soft_mention / 私聊（续聊见 0.3.9）
 
 ### 0.3.2
 

@@ -45,6 +45,9 @@ class InnerState:
     black_score: int = 0
     last_user_care_at: float = 0.0
     open_loops: list[str] = field(default_factory=list)
+    # 群 keep_going：本用户+频道的续聊窗（unix 截止）与本轮唤醒已续次数
+    conversation_window_until: float = 0.0
+    keep_going_used: int = 0
 
 
 @dataclass
@@ -82,4 +85,5 @@ class ExpressResult:
     preface_bubbles: list[str] = field(default_factory=list)
     tool_order: str = ""
     poke_wanted: bool = False
+    poke_times: int = 0  # 出站戳次数；>0 时优先生效，否则看 poke_wanted
     voice_emotion: str = ""

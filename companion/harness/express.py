@@ -21,7 +21,7 @@ from ..voice.emotion import extract_voice_emotion
 from ..voice.intent import extract_voice_speak_line
 from ..canned import pick_fallback
 from .media import extract_vision_images
-from .outbound_sanitize import resolve_style_limits
+from .outbound_sanitize import resolve_style_limits, strip_tool_xml_leak
 from .types import Decision, ExpressResult, InnerState, Perception, ToolPlan
 
 logger = logging.getLogger("astrbot")
@@ -81,6 +81,7 @@ class Expressor:
             memory_block,
             decision,
             allow_tags,
+            event=event,
             vision_urls=vision_urls,
             tool_plan=tool_plan,
             force_voice=force_voice,
@@ -227,6 +228,7 @@ class Expressor:
         decision: Decision,
         allow_tags: list[str],
         *,
+        event: Any = None,
         vision_urls: list[str] | None = None,
         tool_plan: ToolPlan | None = None,
         force_voice: bool = False,
@@ -275,6 +277,11 @@ class Expressor:
                     if tool_hint
                     else tool_plan.hint
                 )
+        elif not decision.allow_tools:
+            tool_hint = (
+                "【本回合无工具】不要输出 function_calls / invoke / tool_call 等标签或伪调用；"
+                "只用口语回复。"
+            )
 
         voice_hint = self._voice_capability_hint(
             force_voice=force_voice,
@@ -417,6 +424,7 @@ class Expressor:
             with_image=bool(vision_urls),
             nearby=nearby,
             force_voice=force_voice,
+            config=self.config,
         )
         user_content: Any
         if vision_urls:
@@ -553,6 +561,7 @@ def _format_user_turn(
     with_image: bool = False,
     nearby: dict[str, list[dict[str, str]]] | None = None,
     force_voice: bool = False,
+    config: dict | None = None,
 ) -> str:
     text = (perception.text or "").strip()
     if with_image:
@@ -572,22 +581,18 @@ def _format_user_turn(
             body = "（对方看着你，没说话）"
 
     chunks: list[str] = []
-    who = (perception.sender_name or "").strip()
-    uid = str(perception.user_id or "").strip()
-    if who or uid:
-        label = who or uid
-        if uid:
-            chunks.append(
-                f"【对方】本群称呼/昵称：{label}（QQ={uid}）。"
-                f"可自然这样叫对方；要真@对方时写 @{label} 或 @[qq:{uid}]。"
-                "别每句硬喊，也别改成别的外号（除非对方刚说过）。"
-            )
-        else:
-            chunks.append(
-                f"【对方】本群称呼/昵称：{label}。"
-                "可自然这样叫对方，别每句硬喊，也别改成别的外号（除非对方刚说过）。"
-            )
+    from .owner_identity import format_counterpart_hint
 
+    hint = format_counterpart_hint(
+        sender_name=perception.sender_name or "",
+        user_id=perception.user_id or "",
+        is_private=bool(perception.is_private),
+        config=config,
+    )
+    if hint:
+        chunks.append(hint)
+
+    who = (perception.sender_name or "").strip()
     before = (nearby or {}).get("before") or []
     after = (nearby or {}).get("after") or []
     deixis = with_image and _is_image_deixis(text)
@@ -651,7 +656,7 @@ def parse_express(
     *,
     always_sticker: bool = True,
 ) -> ExpressResult:
-    raw = sanitize_visible_text(raw or "")
+    raw = strip_tool_xml_leak(sanitize_visible_text(raw or ""))
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     wanted = False
     intent = "none"

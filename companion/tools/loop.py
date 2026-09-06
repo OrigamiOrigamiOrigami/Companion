@@ -19,6 +19,10 @@ _TERMINAL_INTENT_TOOLS = frozenset(
         "schedule_reminder",
         "cancel_reminder",
         "mention_group_member",
+        "llm_set_group_ban",
+        "llm_set_group_whole_ban",
+        "llm_set_group_card",
+        "llm_set_group_special_title",
     }
 )
 
@@ -250,6 +254,8 @@ class ToolLoopRunner:
                         "content": (
                             "工具已返回 ACK（第二步完成）。请只根据 ACK 做人设收尾（第三步）；"
                             "勿再调工具。若前面已说过「正在…」，这里只报结果，勿重复开工句。"
+                            "只看 ok：ok=true 就是成功，必须按 summary 如实说已做成；"
+                            "禁止因 delivered=false 编造失败、没权限、没禁上。"
                             "ok=false 如实说明；ACK 写跳过/未再发送则不要夸大次数。"
                             "必须输出一句可见口语；不要只写 emotion/sticker/poke 控制行。"
                         ),

@@ -59,8 +59,16 @@ _Avoid_: 每条私聊消息立刻各开一轮 Express
 _Avoid_: 用「取消工具副作用」混称（工具已执行的 ACK 另论）
 
 **keep_going（续聊）**:
-群里机器人刚说过话后、用户未再 @/唤醒词仍可能接话的触发。**本阶段搁置（no-op）**；唤醒靠硬 @ / soft_mention / 私聊。
-_Avoid_: 用 LLM 判「这句话算不算还要回」（易把「懂了」接成续聊）
+群里硬 @ / soft_mention 唤醒且 bot 说完后，为**同一发言者**打开短窗；窗内未再唤醒也可能接话。规则（可配）：默认窗 **60s**、每轮唤醒最多续 **1** 次、默认 **不挂工具**、极短确认词表静音（不耗额度）；开关默认 **开**。续聊发出的气泡仅在「已续次数 < 上限」时刷新短窗，否则必须再唤醒。续聊回合跳过同人 `user_cooldown`，否则短窗内接不上。
+_Avoid_: 用 LLM 判「要不要回」；群里任何人都能续；无上限链式；与 `fill_silence` / 私聊主动找人混谈；用熟悉度挡续聊
+
+**主动发消息（范围定案）**:
+首刀只做群 `keep_going`。不复制 private_companion 的私聊仪式/关心链路；不培养好感度作门槛；`ReminderScheduler` 保持并列事务提醒、本刀不重写。群冷插话（`fill_silence`）与自然语言「别打扰」不在本刀。
+_Avoid_: 把对方整包主动引擎搬进来；用熟悉度档位挡续聊
+
+**keep_going 确认词（默认）**:
+`嗯` `嗯嗯` `好` `好的` `好哦` `行` `ok` `OK` `收到` `懂了` `知道了` `1` `哈哈哈` `哈` `草` `dd` — 整句 trim 后精确匹配则 SILENCE。
+_Avoid_: 用子串匹配（会误杀「好的呀那我们…」）；把名单写死进代码不可配
 
 **parser_link 静音**:
 私聊正文像 `astrbot_plugin_parser` 会解析的分享（B站/抖音/小红书等）时 Decide=`SILENCE`，避免与解析插件双响。由 `decide.silence_parser_links` 控制（默认开）。
@@ -73,6 +81,14 @@ _Avoid_: 把未配置的付费搜索仍挂给模型（会空枪耗轮次）
 **chat / 工具面（无闸门）**:
 `ToolPlan.reason=model_decides`：本回合挂上已启用适配器的**全部**工具；是否调用、调哪个由模型理解对方意图决定。仅 `voice_speak_no_tools` / 总开关关闭时不挂工具。
 _Avoid_: 用关键词闸门把 jm/setu 从闲聊回合摘掉（「换一个」等指代会无法触发）
+
+**qqadmin 透传**:
+群管 LLM 走 `astrbot_plugin_qqadmin` 的 `llm_*`；companion 只放行禁言/全员禁言/改名片/改头衔，其余进 denylist。鉴权与执行均在 qqadmin。
+_Avoid_: 在 companion 再写一套禁言适配器；把踢人/群拉黑默认挂给人设
+
+**被戳反应（权重）**:
+被戳不经完整 Express；按权重抽 `speech_poke` / `speech` / `antipoke` / `llm`（详见 ADR-0002）。
+_Avoid_: 再装 pokepro 与 companion 双开抢戳事件
 
 **jm 工具提示**:
 skill 仍给 search/download/随机/换一本的用法提示；不作为是否挂工具的闸门。

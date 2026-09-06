@@ -18,6 +18,7 @@ _SKILL_FILES: tuple[tuple[str, str, str], ...] = (
     ("image_search", "astrbot", "astrbot/image_search.md"),
     ("reminder", "astrbot", "astrbot/reminder.md"),
     ("mention", "astrbot", "astrbot/mention.md"),
+    ("qqadmin", "astrbot", "astrbot/qqadmin.md"),
     ("web_search", "astrbot", "astrbot/web_search.md"),
     ("fetch_web", "mcp", "mcp/fetch_web.md"),
     ("mcp_generic", "mcp", "mcp/_generic.md"),
@@ -31,6 +32,7 @@ _CATALOG_BLURB: dict[str, str] = {
     "image_search": "有图且问出处/作者时",
     "reminder": "要闹钟/N分钟后提醒/到点喊我时",
     "mention": "要真@/艾特/点名/喊某人出来时",
+    "qqadmin": "要禁言/解禁/全员禁言/改名片/改头衔时",
     "web_search": "不确定的实时事实或对方要搜/查时（优先内置搜索）",
     "fetch_web": "消息里有链接要打开/概括时",
     "mcp_generic": "无内置搜索且明确要搜/查时才用 MCP",
@@ -86,6 +88,17 @@ class SkillRegistry:
             business.append("reminder")
         if "mention_group_member" in names:
             business.append("mention")
+        if any(
+            n
+            in names
+            for n in (
+                "llm_set_group_ban",
+                "llm_set_group_whole_ban",
+                "llm_set_group_card",
+                "llm_set_group_special_title",
+            )
+        ):
+            business.append("qqadmin")
         if any(n.startswith("web_search") for n in names):
             business.append("web_search")
         if any("fetch" in n for n in names) or any(
@@ -143,6 +156,17 @@ class SkillRegistry:
             out.append(("reminder", "astrbot"))
         if "mention_group_member" in names:
             out.append(("mention", "astrbot"))
+        if any(
+            n
+            in names
+            for n in (
+                "llm_set_group_ban",
+                "llm_set_group_whole_ban",
+                "llm_set_group_card",
+                "llm_set_group_special_title",
+            )
+        ):
+            out.append(("qqadmin", "astrbot"))
         if any(n.startswith("web_search") for n in names):
             out.append(("web_search", "astrbot"))
         if any("fetch" in n for n in names) or any(

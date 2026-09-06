@@ -77,6 +77,13 @@ POOLS: dict[str, list[str]] = {
         "嗯？戳我一下……想说什么直接说嘛~",
         "好啦好啦，我在呢，别戳了~",
     ],
+    "poke_antipoke": [
+        "哼，回戳！",
+        "戳回来——看招~",
+        "再戳？那我连戳你！",
+        "反击开始咯~",
+        "诶嘿，戳回去！",
+    ],
     "poke_sticker_playful": ["playful", "tease", "cute", "question"],
     "poke_sticker_warm": ["warm", "happy", "shy", "like"],
     "poke_sticker_private": ["shy", "cute", "warm", "tease"],
