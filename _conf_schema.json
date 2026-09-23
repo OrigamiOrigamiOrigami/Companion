@@ -398,6 +398,12 @@
         "description": "一轮对话里最多几轮工具调用",
         "default": 3
     },
+    "工具恢复次数": {
+        "type": "int",
+        "description": "无 tool_calls 但 ACK 未闭合时，最多 nudge 几次再停",
+        "hint": "借鉴 CC：不调工具≠完成；默认 1；0=关闭恢复",
+        "default": 1
+    },
     "单次工具超时秒": {
         "type": "int",
         "description": "普通工具调用最长等待（秒）",

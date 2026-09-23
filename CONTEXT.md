@@ -82,6 +82,10 @@ _Avoid_: 把未配置的付费搜索仍挂给模型（会空枪耗轮次）
 `ToolPlan.reason=model_decides`：本回合挂上已启用适配器的**全部**工具；是否调用、调哪个由模型理解对方意图决定。仅 `voice_speak_no_tools` / 总开关关闭时不挂工具。
 _Avoid_: 用关键词闸门把 jm/setu 从闲聊回合摘掉（「换一个」等指代会无法触发）
 
+**Tool Loop 恢复（ADR-0004）**:
+空 `tool_result` 占位；无 `tool_calls` 且 ACK 未闭合（`needs_followup`/`done=false`）时最多 `tools.recovery_max`（默认 1）次 nudge。提示词要求勿假装做完。环工具无关；`ToolSpec.risk`/`requires_confirm` 仅预留。keep_going 等 `allow_tools=false` 不跑恢复。
+_Avoid_: 闲聊一律 nudge；把恢复写死成 jm/setu 特例分支；首刀做回合内上下文压缩
+
 **qqadmin 透传**:
 群管 LLM 走 `astrbot_plugin_qqadmin` 的 `llm_*`；companion 只放行禁言/全员禁言/改名片/改头衔，其余进 denylist。鉴权与执行均在 qqadmin。
 _Avoid_: 在 companion 再写一套禁言适配器；把踢人/群拉黑默认挂给人设

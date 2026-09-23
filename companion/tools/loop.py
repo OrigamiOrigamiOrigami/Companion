@@ -10,6 +10,12 @@ from ..provider.router import ProviderRouter
 from .ack import parse_tool_ack, tool_failed, build_tool_ack
 from .bridge import ToolBridge
 from .bridge import SINGLE_SHOT_TOOLS
+from .recovery import (
+    build_recovery_nudge,
+    enrich_ack_followup,
+    tool_result_content_or_placeholder,
+    trace_has_open_followup,
+)
 
 logger = logging.getLogger("astrbot")
 
@@ -85,6 +91,7 @@ class ToolLoopRunner:
             return text, [], [{"mode": "direct_no_tools", "raw_response": text}]
 
         max_rounds = int(self.tools_cfg.get("max_rounds") or 3)
+        recovery_max = max(0, int(self.tools_cfg.get("recovery_max") or 1))
         parallel_max = max(1, int(self.tools_cfg.get("parallel_max") or 2))
         shrink_on_failover = bool(self.tools_cfg.get("failover_shrink_tools", True))
 
@@ -92,6 +99,7 @@ class ToolLoopRunner:
         used: list[str] = []
         trace: list[dict[str, Any]] = []
         turn_tool_cache: dict[str, str] = {}
+        recovery_used = 0
 
         for round_idx in range(max_rounds):
             data, provider_role, model = await self._llm(working, tools=tools)
@@ -117,6 +125,29 @@ class ToolLoopRunner:
 
             if not tool_calls:
                 content = _extract_message_text(message)
+                open_fu = bool(used) and trace_has_open_followup(trace)
+                can_recover = (
+                    recovery_used < recovery_max
+                    and round_idx + 1 < max_rounds
+                    and open_fu
+                )
+                if can_recover:
+                    recovery_used += 1
+                    nudge = build_recovery_nudge(open_followup=True, used_tools=used)
+                    working.append(message)
+                    working.append({"role": "system", "content": nudge})
+                    round_entry["raw_response"] = content
+                    round_entry["recovery_nudge"] = True
+                    round_entry["recovery_used"] = recovery_used
+                    trace.append(round_entry)
+                    logger.info(
+                        "companion 工具环 nudge recovery=%s/%s used=%s",
+                        recovery_used,
+                        recovery_max,
+                        used,
+                    )
+                    continue
+
                 round_entry["raw_response"] = content
                 trace.append(round_entry)
                 if content:
@@ -193,6 +224,7 @@ class ToolLoopRunner:
                     ).get("skipped_duplicate"):
                         real_runs += 1
 
+                result = tool_result_content_or_placeholder(result, name)
                 used.append(name)
                 entry: dict[str, Any] = {
                     "name": name,
@@ -207,7 +239,11 @@ class ToolLoopRunner:
                     entry["args_error"] = args_error
                 ack = None
                 try:
-                    ack = parse_tool_ack(result)
+                    raw_ack = parse_tool_ack(result)
+                    ack = enrich_ack_followup(name, raw_ack)
+                    if ack is not None and ack != raw_ack:
+                        result = json.dumps(ack, ensure_ascii=False)
+                        entry["result"] = result
                 except Exception:
                     pass
                 if ack:

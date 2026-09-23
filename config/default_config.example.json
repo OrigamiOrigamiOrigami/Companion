@@ -145,6 +145,7 @@
     "mcp_enabled": true,
     "default_mode": "open_with_deny",
     "max_rounds": 3,
+    "recovery_max": 1,
     "timeout_sec": 30,
     "slow_timeout_sec": 120,
     "parallel_max": 2,

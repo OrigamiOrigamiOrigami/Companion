@@ -65,6 +65,16 @@ class ToolSpec:
     source_label: str
     parameters: dict[str, Any]
     func_tool: Any
+    # 预留：高危工具确认闸门（首刀只认字段，不拦截）
+    risk: str = "normal"  # normal | high
+    requires_confirm: bool = False
+    multi_step: bool = False
+
+
+# 按工具名预留元数据；日后截图/挪文件在此挂 risk=high
+TOOL_META: dict[str, dict[str, Any]] = {
+    # 例： "desktop_screenshot": {"risk": "high", "requires_confirm": True, "multi_step": False},
+}
 
 
 class ToolBridge:
@@ -338,6 +348,7 @@ class ToolBridge:
                 else:
                     label = f"plugin:{plugin}"
 
+            meta = TOOL_META.get(name) or {}
             specs.append(
                 ToolSpec(
                     name=name,
@@ -346,6 +357,9 @@ class ToolBridge:
                     source_label=label,
                     parameters=getattr(func, "parameters", None) or {"type": "object", "properties": {}},
                     func_tool=func,
+                    risk=str(meta.get("risk") or "normal"),
+                    requires_confirm=bool(meta.get("requires_confirm") or False),
+                    multi_step=bool(meta.get("multi_step") or False),
                 )
             )
 

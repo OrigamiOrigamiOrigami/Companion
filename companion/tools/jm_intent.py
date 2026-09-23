@@ -7,7 +7,6 @@ _COMIC_ID_RE = re.compile(r"(?:jm|JM)?(\d{5,})")
 _QQ_MENTION_RE = re.compile(r"@[^()\s]{0,64}\(\d{5,}\)|\@\d{5,}")
 _JM_KW = ("jm", "禁漫", "本子", "jmcomic")
 _SEARCH_KW = ("搜", "搜索", "找", "tag", "标签")
-# 群管话术里的长数字不是本子 ID
 _MODERATION_KW = ("禁言", "解禁", "口球", "闭嘴", "封嘴", "踢了", "拉黑")
 
 

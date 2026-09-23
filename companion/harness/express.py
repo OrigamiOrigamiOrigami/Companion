@@ -277,6 +277,12 @@ class Expressor:
                     if tool_hint
                     else tool_plan.hint
                 )
+            recovery = (
+                "【工具环】不调用工具不等于任务完成：若 ACK 含 needs_followup=true 或 done=false，"
+                "必须继续调工具收尾；一次失败先看 ACK/错误再换策略，勿假装已做完。"
+                "空结果也会有占位 ACK，勿当成「什么都没发生」。"
+            )
+            tool_hint = f"{tool_hint} {recovery}".strip() if tool_hint else recovery
         elif not decision.allow_tools:
             tool_hint = (
                 "【本回合无工具】不要输出 function_calls / invoke / tool_call 等标签或伪调用；"

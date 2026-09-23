@@ -71,7 +71,6 @@ def _name_addressed(text: str, wake_words: list[str]) -> bool:
         rest = t[len(w) :]
         if not rest:
             return True
-        # 「小爱」「小爱，」「小爱你觉得」都算点名；避免误伤「小爱好玩的店」中嵌套——仅句首
         if rest[0] in "，,。.!！？?、：:；; \t":
             return True
         # 紧跟汉字/字母继续问话

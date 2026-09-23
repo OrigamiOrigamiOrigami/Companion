@@ -120,8 +120,17 @@ def build_tool_ack(
     ok: bool | None = None,
     delivered: bool | None = None,
     plugin_sent: bool | None = None,
+    done: bool | None = None,
+    needs_followup: bool | None = None,
+    next_hint: str = "",
 ) -> str:
-    """结构化工具 ACK，供 LLM 可靠判断成功与否。"""
+    """结构化工具 ACK，供 LLM 可靠判断成功与否。
+
+    扩展字段（工具无关，供 Tool Loop 恢复）：
+    - done: 该工具步骤是否已闭环
+    - needs_followup: 是否还需要再调工具
+    - next_hint: 给模型的下一步提示（可空）
+    """
     exec_result = ToolExecResult.coerce(raw)
     text = exec_result.text
     if plugin_sent is None:
@@ -133,13 +142,40 @@ def build_tool_ack(
         delivered = _infer_delivered(tool, text, ok=ok, plugin_sent=plugin_sent)
 
     summary = _summarize(tool, text, ok=ok, delivered=delivered)
+    if not (summary or "").strip():
+        summary = f"（{tool}：无输出，已执行）"
     detail = text[:800] if (not ok or not delivered) else ""
+
+    # 默认闭环推断；调用方可显式覆盖
+    if needs_followup is None and done is None:
+        if tool == "jmcomic_search" and ok and (
+            "请选 ID" in summary or "有结果" in summary
+        ):
+            needs_followup = True
+            done = False
+            if not next_hint:
+                next_hint = "从搜索结果选一个 ID 调用 jmcomic_download。"
+        else:
+            done = bool(ok)
+            needs_followup = False
+    elif needs_followup is True and done is None:
+        done = False
+    elif done is False and needs_followup is None:
+        needs_followup = True
+    elif done is None:
+        done = bool(ok) and not bool(needs_followup)
+    elif needs_followup is None:
+        needs_followup = not bool(done)
+
     payload = {
         "ok": ok,
         "tool": tool,
         "summary": summary,
         "delivered": delivered,
         "detail": detail,
+        "done": bool(done),
+        "needs_followup": bool(needs_followup),
+        "next_hint": str(next_hint or ""),
     }
     return json.dumps(payload, ensure_ascii=False)
 
