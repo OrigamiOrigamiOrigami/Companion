@@ -108,7 +108,7 @@ class PortraitConsolidator:
             new_anchors=new_anchors,
         )
         raw = ""
-        which = (self.portrait_cfg.get("summarizer_provider") or "fallback").strip().lower()
+        which = (self.portrait_cfg.get("summarizer_provider") or "active").strip().lower()
         try:
             raw = await self._call_summarizer(prompt)
             parsed = self._parse_output(raw)
@@ -133,20 +133,7 @@ class PortraitConsolidator:
             return False
 
     async def _call_summarizer(self, prompt: str) -> str:
-        which = (self.portrait_cfg.get("summarizer_provider") or "fallback").strip().lower()
-        block_key = "primary" if which == "primary" else "fallback"
-        block = (self.config.get("providers") or {}).get(block_key) or {}
-        creds = self.provider._resolve_block(block, role=block_key)
-        if creds is None and block_key == "fallback":
-            creds = self.provider._resolve_block(
-                (self.config.get("providers") or {}).get("primary") or {},
-                role="primary",
-            )
-        if creds is None:
-            raise RuntimeError("no summarizer provider")
-
-        from ..provider.openai_compat import chat_completions
-
+        which = (self.portrait_cfg.get("summarizer_provider") or "active").strip().lower()
         messages = [
             {
                 "role": "system",
@@ -161,6 +148,33 @@ class PortraitConsolidator:
             },
             {"role": "user", "content": prompt},
         ]
+        # 默认跟随当前供应商（与聊天一致）；勿再写死 primary/白山
+        if which in ("", "active", "default", "当前", "当前供应商"):
+            return await self.provider.chat(messages)
+
+        aliases = {
+            "minimax": "primary",
+            "edgefn": "primary",
+            "白山": "primary",
+            "daodun": "claude",
+            "道盾": "claude",
+            "备用": "fallback",
+        }
+        pid = aliases.get(which, which)
+        profiles = self.provider._profiles()
+        block = profiles.get(pid)
+        if block is None and pid == "fallback":
+            # 未配备用时跟 active，避免悄悄掉回白山 primary
+            return await self.provider.chat(messages)
+        if block is None:
+            raise RuntimeError(f"no summarizer provider «{which}»")
+
+        creds = self.provider._resolve_block(block, role=pid)
+        if creds is None:
+            raise RuntimeError(f"summarizer provider «{pid}» missing credentials")
+
+        from ..provider.openai_compat import chat_completions
+
         return await chat_completions(
             base_url=creds["base_url"],
             api_key=creds["api_key"],

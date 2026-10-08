@@ -178,6 +178,19 @@
         "hint": "默认开；与 astrbot_plugin_parser 错开，避免双响。群聊不受影响",
         "default": true
     },
+    "回复指令让位": {
+        "type": "bool",
+        "description": "引用回复并@角色时，若正文像加速/点歌等指令则不聊天",
+        "hint": "默认开；避免与其它插件双响。普通回复里顺带@闲聊不受影响",
+        "default": true
+    },
+    "回复指令让位词": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "让位指令词（剥掉@/称呼后正文以此开头即静音）",
+        "hint": "默认：加速、减速、点歌、识图。支持「加速 8」；需要时自行追加",
+        "default": ["加速", "减速", "点歌", "识图"]
+    },
     "主动插话熟悉度门槛": {
         "type": "string",
         "description": "【暂未生效】非 @ 主动开口的熟悉度门槛",
@@ -277,9 +290,9 @@
     },
     "画像总结用哪个模型": {
         "type": "string",
-        "description": "整理用户画像时用主模型还是备用",
-        "hint": "填 primary 或 fallback",
-        "default": "fallback"
+        "description": "整理用户画像时用哪个供应商",
+        "hint": "默认 active=跟随「当前供应商」。也可填 claude / primary / fallback",
+        "default": "active"
     },
     "画像总结最短间隔分钟": {
         "type": "int",
@@ -519,6 +532,13 @@
         "items": { "type": "string" },
         "description": "普通管理员 QQ 号（也可由超管用命令维护）",
         "hint": "有上传表情等管理权限，不能改超管/管理员名单",
+        "default": []
+    },
+    "用户黑名单": {
+        "type": "list",
+        "items": { "type": "string" },
+        "description": "这些 QQ 的消息、指令、戳一戳一律无视",
+        "hint": "全局生效",
         "default": []
     },
 

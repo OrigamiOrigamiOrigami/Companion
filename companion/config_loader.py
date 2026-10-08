@@ -51,6 +51,8 @@ DEFAULTS: dict[str, Any] = {
         "familiarity_threshold": "warming",
         "llm_assist": False,
         "silence_parser_links": True,
+        "silence_reply_at_commands": True,
+        "reply_at_command_keywords": ["加速", "减速", "点歌", "识图"],
     },
     "express": {
         "fallback_message": "呜……好像不太行，我再想想办法？",
@@ -170,7 +172,7 @@ DEFAULTS: dict[str, Any] = {
         "group_tape_quota": 200,
     },
     "portrait": {
-        "summarizer_provider": "fallback",
+        "summarizer_provider": "active",
         "consolidate_cooldown_min": 30,
         "consolidate_min_hours": 6,
         "consolidate_min_episodic": 8,
@@ -258,6 +260,10 @@ DEFAULTS: dict[str, Any] = {
         "groups": {},
         "owner_callname": "阿漂",
     },
+    "access": {
+        # 全局用户黑名单（QQ 号）；companion 消息/指令/戳一戳一律不接。超管豁免。
+        "ignored_user_ids": [],
+    },
     "voice": {
         "enabled": False,
         "provider": "siliconflow",
@@ -330,6 +336,7 @@ FLAT_KEY_PATHS: dict[str, tuple[str, ...]] = {
     "主动插话熟悉度门槛": ("decide", "familiarity_threshold"),
     "决策层LLM辅助": ("decide", "llm_assist"),
     "私聊解析链接静音": ("decide", "silence_parser_links"),
+    "回复指令让位": ("decide", "silence_reply_at_commands"),
     "模型全失败兜底句": ("express", "fallback_message"),
     "每回合最多气泡数": ("express", "max_bubbles"),
     "单气泡最大字数": ("express", "max_chars"),
@@ -420,6 +427,7 @@ FLAT_KEY_PATHS: dict[str, tuple[str, ...]] = {
     "decide_familiarity_threshold": ("decide", "familiarity_threshold"),
     "decide_llm_assist": ("decide", "llm_assist"),
     "decide_silence_parser_links": ("decide", "silence_parser_links"),
+    "decide_silence_reply_at_commands": ("decide", "silence_reply_at_commands"),
     "express_fallback_message": ("express", "fallback_message"),
     "express_max_bubbles": ("express", "max_bubbles"),
     "express_max_chars": ("express", "max_chars"),
@@ -476,6 +484,9 @@ FLAT_LIST_KEYS: dict[str, tuple[str, ...]] = {
     "超级管理员QQ号": ("admins", "super"),
     "管理员QQ号": ("admins", "operators"),
     "超管称呼": ("admins", "owner_callname"),
+    "用户黑名单": ("access", "ignored_user_ids"),
+    "回复指令让位词": ("decide", "reply_at_command_keywords"),
+    "decide_reply_at_command_keywords": ("decide", "reply_at_command_keywords"),
     "语音强制关键词": ("voice", "force_keywords"),
     "rest_keywords": ("rest", "keywords"),
     "wake_words_daniya": ("wake_words", "daniya"),
@@ -486,6 +497,7 @@ FLAT_LIST_KEYS: dict[str, tuple[str, ...]] = {
     "admins_super": ("admins", "super"),
     "admins_operators": ("admins", "operators"),
     "admins_list": ("admins", "operators"),
+    "access_ignored_user_ids": ("access", "ignored_user_ids"),
 }
 
 
@@ -637,6 +649,7 @@ def _looks_nested(runtime: dict) -> bool:
         "concurrency",
         "card",
         "admins",
+        "access",
         "wake_words",
         "reminders",
         "poke",

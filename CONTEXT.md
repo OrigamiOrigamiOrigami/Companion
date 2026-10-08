@@ -74,6 +74,14 @@ _Avoid_: 用子串匹配（会误杀「好的呀那我们…」）；把名单�
 私聊正文像 `astrbot_plugin_parser` 会解析的分享（B站/抖音/小红书等）时 Decide=`SILENCE`，避免与解析插件双响。由 `decide.silence_parser_links` 控制（默认开）。
 _Avoid_: 把群聊硬 @ 带链接也静掉；不要 import parser 做匹配
 
+**用户黑名单**:
+面板 `用户黑名单`（`access.ignored_user_ids`）：名单内 QQ 的群旁观/硬@/私聊/戳一戳/companion 短指令一律静默丢弃。超管 QQ 豁免。
+_Avoid_: 做成按群名单；用黑名单挡其它 AstrBot 插件（点歌等不归 companion）
+
+**回复指令让位**:
+引用回复 + 硬@/软提，且剥掉 @/唤醒词后正文以 `decide.reply_at_command_keywords` 开头（默认加速/减速/点歌/识图，含「加速 8」）→ Decide=`SILENCE`（`reply_at_command`）。普通回复顺带 @ 闲聊不命中词表则照常聊。
+_Avoid_: 凡回复带 @ 就静音；自动扫全站插件命令表
+
 **内置网页搜索**:
 AstrBot 的搜索工具。无 key 时默认 denylist 掉 `web_search_tavily` / `web_search_bocha`，只用免费 `web_search`。
 _Avoid_: 把未配置的付费搜索仍挂给模型（会空枪耗轮次）
