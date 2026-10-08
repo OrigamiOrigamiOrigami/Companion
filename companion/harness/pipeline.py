@@ -11,6 +11,7 @@ from astrbot.api.all import CommandResult
 from astrbot.api.event import AstrMessageEvent
 
 from ..card.loader import CardLoader, CharacterCard
+from ..access import is_user_ignored
 from ..canned import (
     pick_fallback,
     PORTRAIT_EMPTY,
@@ -631,6 +632,8 @@ class HarnessPipeline:
         info = parse_poke(event)
         if info is None or not info.to_self:
             return None
+        if is_user_ignored(info.sender_id, self.config):
+            return None
         if info.group_id and self._group_enabled.get(str(info.group_id), True) is False:
             return None
 
@@ -738,6 +741,9 @@ class HarnessPipeline:
         return sanitize_outbound_text(raw or "", strip_asterisk_actions=True)[:80]
 
     async def handle(self, event: AstrMessageEvent, trigger: str):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
+
         perception = perceive(
             event,
             trigger=trigger,
@@ -786,7 +792,13 @@ class HarnessPipeline:
         if perception.group_id:
             group_enabled = self._group_enabled.get(str(perception.group_id), True)
 
-        decision: Decision = decide(perception, state, self.config, group_enabled=group_enabled)
+        decision: Decision = decide(
+            perception,
+            state,
+            self.config,
+            group_enabled=group_enabled,
+            wake_words=self.wake_words(),
+        )
 
         logger.info(
             "companion 决策=%s 原因=%s 形态=%s 触发=%s 频道=%s 媒体=%s",

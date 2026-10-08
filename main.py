@@ -11,6 +11,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.star_handler import EventType, StarHandlerMetadata, star_handlers_registry
 
+from .companion.access import is_user_ignored
 from .companion.canned import (
     ADMIN_ADDED,
     ADMIN_CANNOT_SELF_SUPER,
@@ -171,6 +172,8 @@ class CompanionPlugin(Star):
         )
 
     async def cmd_sticker_catalog(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         try:
             info = self.pipeline.build_sticker_catalog_image()
         except ValueError:
@@ -205,6 +208,8 @@ class CompanionPlugin(Star):
         return await self.pipeline.handle(event, trigger="group_observe")
 
     async def cmd_sticker_upload(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         if not _is_admin(event, self.config):
             return CommandResult().message(STICKERS_UPLOAD_NO_PERM)
         tag, urls = _parse_upload_parts(event)
@@ -213,6 +218,8 @@ class CompanionPlugin(Star):
         return await self._do_sticker_upload(event, tag, image_urls=urls)
 
     async def cmd_emotion_stats(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         text = _event_text(event)
         if re.search(r"清零", text or ""):
             if not _is_admin(event, self.config):
@@ -221,11 +228,15 @@ class CompanionPlugin(Star):
         return CommandResult().message(self.pipeline.sticker_stats())
 
     async def cmd_clear_memory(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         uid = str(event.get_sender_id())
         self.pipeline.clear_user_memory(uid)
         return CommandResult().message(MEMORY_CLEARED)
 
     async def cmd_admin_short(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         text = _event_text(event)
         tail = re.sub(r"^/?", "", text or "").strip()
         args = resolve_command_args(tail)
@@ -281,6 +292,8 @@ class CompanionPlugin(Star):
         )
 
     async def cmd_companion(self, context, event: AstrMessageEvent):
+        if is_user_ignored(event.get_sender_id(), self.config):
+            return None
         tail = _parse_companion_tail(event)
         args = resolve_command_args(tail)
         sub = args[0] if args else "status"
