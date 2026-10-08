@@ -15,6 +15,7 @@ class Perception:
     hard_mentioned: bool
     soft_mentioned: bool
     name_addressed: bool = False
+    is_reply: bool = False
     sender_name: str = ""
     rest_keyword: bool = False
     image_count: int = 0

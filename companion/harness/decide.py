@@ -6,6 +6,7 @@ from typing import Any
 from .keep_going import can_keep_going, is_keep_going_ack, keep_going_cfg
 from .parser_links import looks_like_parser_share
 from .presence import night_afk_roll
+from .reply_at_command import should_silence_reply_at_command
 from .types import Decision, InnerState, Perception
 
 
@@ -15,6 +16,7 @@ def decide(
     config: dict[str, Any],
     *,
     group_enabled: bool = True,
+    wake_words: list[str] | None = None,
 ) -> Decision:
     """
     规则优先的开口决策。
@@ -25,11 +27,30 @@ def decide(
 
     私聊里若像 astrbot_plugin_parser 会解析的分享链接，默认 SILENCE，
     把舞台让给解析插件（``decide.silence_parser_links``）。
+
+    引用回复 + 唤起 + 正文像加速/点歌等指令时 SILENCE（``reply_at_command``），
+    避免与其它插件双响；普通回复里顺带 @ 闲聊不受影响。
     """
     if perception.rest_keyword and not perception.hard_mentioned:
         return Decision("SILENCE", "rest_gate")
     if (not perception.is_private) and (not group_enabled):
         return Decision("SILENCE", "group_disabled")
+
+    woken = bool(
+        perception.hard_mentioned
+        or perception.trigger == "hard_mention"
+        or perception.soft_mentioned
+        or perception.name_addressed
+    )
+    if should_silence_reply_at_command(
+        is_reply=bool(perception.is_reply),
+        woken=woken,
+        text=perception.text or "",
+        wake_words=wake_words,
+        config=config,
+    ):
+        return Decision("SILENCE", "reply_at_command")
+
     if perception.hard_mentioned or perception.trigger == "hard_mention":
         return Decision("FULL", "hard_mention", allow_tools=True)
 

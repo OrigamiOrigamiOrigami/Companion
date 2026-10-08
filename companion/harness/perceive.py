@@ -15,6 +15,20 @@ _REST = ("晚安", "睡了", "别吵", "勿扰", "休息了")
 _SPACE_ODD = re.compile(r"[\u00a0\u2000-\u200b\u202f\u205f\u3000]+")
 
 
+def _has_reply(event: AstrMessageEvent) -> bool:
+    try:
+        from astrbot.core.message.components import Reply
+    except ImportError:
+        return False
+    try:
+        for msg in event.get_messages() or []:
+            if isinstance(msg, Reply):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def perceive(
     event: AstrMessageEvent,
     *,
@@ -44,6 +58,7 @@ def perceive(
         hard_mentioned=hard,
         soft_mentioned=soft or name_addressed,
         name_addressed=name_addressed,
+        is_reply=_has_reply(event),
         rest_keyword=rest,
         image_count=media.image_count,
         face_count=media.face_count,
